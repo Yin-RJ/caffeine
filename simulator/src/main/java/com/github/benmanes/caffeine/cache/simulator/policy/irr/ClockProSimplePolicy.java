@@ -15,22 +15,24 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.policy.irr;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.typesafe.config.Config;
+
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-
-import static com.google.common.base.Preconditions.checkState;
 
 /**
  * The ClockPro algorithm. This algorithm differs from LIRS by replacing the LRU stacks with Clock
  * (Second Chance) policy. This allows cache hits to be performed concurrently at the cost of a
- * global lock on a miss and a worst case O(n) eviction when the queue is scanned.
+ * global lock on a miss and has the worst case time of O(n) on eviction due to queues being
+ * scanned.
  * <p>
  * ClockPro uses three hands that scan the queue. The hot hand points to the largest recency, the
  * cold hand to the cold entry furthest from the hot hand, and the test hand to the last cold entry
@@ -51,6 +53,9 @@ import static com.google.common.base.Preconditions.checkState;
  */
 @PolicySpec(name = "irr.ClockProSimple")
 public final class ClockProSimplePolicy implements KeyOnlyPolicy {
+  // Enable to print out the internal state
+  private static final boolean debug = false;
+
   private final Long2ObjectMap<Node> data;
   private final PolicyStats policyStats;
 
@@ -92,12 +97,9 @@ public final class ClockProSimplePolicy implements KeyOnlyPolicy {
   //  - decreases when test entry is removed
   private int coldTarget;
 
-  // Enable to print out the internal state
-  static final boolean debug = false;
-
   public ClockProSimplePolicy(Config config) {
     BasicSettings settings = new BasicSettings(config);
-    this.maxSize = Ints.checkedCast(settings.maximumSize());
+    this.maxSize = Math.toIntExact(settings.maximumSize());
     this.minColdSize = this.maxSize / 100;
     this.maxColdSize = this.maxSize - (this.maxSize / 100);
     this.policyStats = new PolicyStats(name());
@@ -229,11 +231,11 @@ public final class ClockProSimplePolicy implements KeyOnlyPolicy {
     Node victim = headCold.prev;
     victim.unlink();
     if (victim.marked) {
-      // If its bit is set and it is in its test period, we consider this entry as a candidate for
+      // If its bit is set, and it is in its test period, we consider this entry as a candidate for
       // promotion to hot, because an access during the test period indicates a competitively
-      // small reuse distance. We scans hot entries for finding a hot entry with a longer reuse
-      // distance than the candidate cold entry. If we failed to find a hot entry with a longer
-      // reuse distance than the candidate, or the candidate test period is expired, we reset its
+      // small reuse distance. We scan hot entries to find a hot entry with a longer reuse distance
+      // than the candidate cold entry. If we failed to find a hot entry with a longer reuse
+      // distance than the candidate, or the candidate test period is expired, we reset its
       // reference bit and move it to the list head, and grant a new test period by renewing the
       // epoch.
       victim.marked = false;
@@ -270,6 +272,7 @@ public final class ClockProSimplePolicy implements KeyOnlyPolicy {
 
   // ScanHot demotes a hot entry between the oldest hot entry's epoch and the given epoch.
   // If the demotion was successful it returns true, otherwise it returns false.
+  @CanIgnoreReturnValue
   private boolean scanHot(long epoch) {
     for (Node victim = headHot.prev; victim.epoch <= epoch; victim = headHot.prev) {
       policyStats.recordOperation();
@@ -330,21 +333,21 @@ public final class ClockProSimplePolicy implements KeyOnlyPolicy {
     if (sizeCold > 0) {
       System.out.println("** CLOCK-Pro list COLD HEAD (small recency) **");
       for (Node n = headCold.next; n != headCold; n = n.next) {
-        System.out.println(n.toString());
+        System.out.println(n);
       }
       System.out.println("** CLOCK-Pro list COLD TAIL (large recency) **");
     }
     if (sizeHot > 0) {
       System.out.println("** CLOCK-Pro list HOT HEAD (small recency) **");
       for (Node n = headHot.next; n != headHot; n = n.next) {
-        System.out.println(n.toString());
+        System.out.println(n);
       }
       System.out.println("** CLOCK-Pro list HOT TAIL (large recency) **");
     }
     if (sizeNR > 0) {
       System.out.println("** CLOCK-Pro list NR HEAD (small recency) **");
       for (Node n = headNonResident.next; n != headNonResident; n = n.next) {
-        System.out.println(n.toString());
+        System.out.println(n);
       }
       System.out.println("** CLOCK-Pro list NR TAIL (large recency) **");
     }

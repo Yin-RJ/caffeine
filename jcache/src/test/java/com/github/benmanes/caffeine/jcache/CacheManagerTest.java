@@ -16,6 +16,7 @@
 package com.github.benmanes.caffeine.jcache;
 
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Locale.US;
 
 import java.lang.management.ManagementFactory;
 import java.util.function.Supplier;
@@ -25,6 +26,7 @@ import javax.cache.CacheManager;
 import javax.cache.Caching;
 import javax.cache.configuration.CompleteConfiguration;
 import javax.management.ObjectName;
+import javax.management.OperationsException;
 
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -47,20 +49,22 @@ public final class CacheManagerTest {
     var provider = Caching.getCachingProvider(PROVIDER_NAME);
     cacheManager = provider.getCacheManager(
         provider.getDefaultURI(), provider.getDefaultClassLoader());
+    cacheManager.getCacheNames().forEach(cacheManager::destroyCache);
   }
 
   @Test
-  public void jmxBeanIsRegistered_createCache() throws Exception {
+  public void jmxBeanIsRegistered_createCache() throws OperationsException {
     checkConfigurationJmx(() -> cacheManager.createCache("cache-not-in-config-file",
-        TypesafeConfigurator.from(ConfigFactory.load(), "test-cache").get()));
+        TypesafeConfigurator.from(ConfigFactory.load(), "test-cache").orElseThrow()));
   }
 
   @Test
-  public void jmxBeanIsRegistered_getCache() throws Exception {
+  public void jmxBeanIsRegistered_getCache() throws OperationsException {
     checkConfigurationJmx(() -> cacheManager.getCache("test-cache"));
   }
 
-  private void checkConfigurationJmx(Supplier<Cache<?, ?>> cacheSupplier) throws Exception {
+  private void checkConfigurationJmx(Supplier<Cache<?, ?>> cacheSupplier)
+      throws OperationsException {
     Cache<?, ?> cache = cacheSupplier.get();
 
     @SuppressWarnings("unchecked")
@@ -70,6 +74,16 @@ public final class CacheManagerTest {
 
     String name = "javax.cache:Cache=%s,CacheManager=%s,type=CacheStatistics";
     ManagementFactory.getPlatformMBeanServer().getObjectInstance(
-        new ObjectName(String.format(name, cache.getName(), PROVIDER_NAME)));
+        new ObjectName(String.format(US, name, cache.getName(), PROVIDER_NAME)));
+  }
+
+  @Test
+  public void enableManagement_absent() {
+    cacheManager.enableManagement("absent", true);
+  }
+
+  @Test
+  public void enableStatistics_absent() {
+    cacheManager.enableStatistics("absent", true);
   }
 }

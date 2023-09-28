@@ -17,6 +17,7 @@ package com.github.benmanes.caffeine.cache.issues;
 
 import static com.github.benmanes.caffeine.testing.Awaits.await;
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Locale.US;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +34,7 @@ import com.github.benmanes.caffeine.testing.ConcurrentTestHarness;
  * SOLR-10141: Removal listener notified with stale value
  * <p>
  * When an entry is chosen for eviction and concurrently updated, the value notified should be the
- * updated one if the <tt>put</tt> was successful.
+ * updated one if the <code>put</code> was successful.
  *
  * @author yseeley@gmail.com (Yonik Seeley)
  * @author ben.manes@gmail.com (Ben Manes)
@@ -56,7 +57,7 @@ public final class Solr10141Test {
   final Random rnd = new Random();
 
   @Test
-  public void eviction() throws Exception {
+  public void eviction() {
     var hits = new AtomicLong();
     var inserts = new AtomicLong();
     var removals = new AtomicLong();
@@ -64,13 +65,14 @@ public final class Solr10141Test {
     RemovalListener<Long, Val> listener = (k, v, removalCause) -> {
       assertThat(v.key).isEqualTo(k);
       if (!v.live.compareAndSet(true, false)) {
-        throw new RuntimeException(String.format(
+        throw new RuntimeException(String.format(US,
             "listener called more than once! k=%s, v=%s, removalCause=%s", k, v, removalCause));
       }
       removals.incrementAndGet();
     };
 
     Cache<Long, Val> cache = Caffeine.newBuilder()
+        .executor(ConcurrentTestHarness.executor)
         .removalListener(listener)
         .maximumSize(maxEntries)
         .build();
@@ -126,7 +128,7 @@ public final class Solr10141Test {
 
     await().until(() -> (inserts.get() - removals.get()) == cache.estimatedSize());
 
-    System.out.printf("Done!%n"
+    System.out.printf(US, "Done!%n"
         + "entries=%,d inserts=%,d removals=%,d hits=%,d maxEntries=%,d maxObservedSize=%,d%n",
         cache.estimatedSize(), inserts.get(), removals.get(),
         hits.get(), maxEntries, maxObservedSize.get());
@@ -134,7 +136,7 @@ public final class Solr10141Test {
   }
 
   @Test
-  public void clear() throws Exception {
+  public void clear() {
     var inserts = new AtomicLong();
     var removals = new AtomicLong();
     var failed = new AtomicBoolean();
@@ -142,7 +144,7 @@ public final class Solr10141Test {
     RemovalListener<Long, Val> listener = (k, v, removalCause) -> {
       assertThat(v.key).isEqualTo(k);
       if (!v.live.compareAndSet(true, false)) {
-        throw new RuntimeException(String.format(
+        throw new RuntimeException(String.format(US,
             "listener called more than once! k=%s, v=%s, removalCause=%s", k, v, removalCause));
       }
       removals.incrementAndGet();

@@ -16,7 +16,7 @@
 package com.github.benmanes.caffeine.cache.simulator.policy.sampled;
 
 import static java.util.Locale.US;
-import static java.util.stream.Collectors.toSet;
+import static java.util.stream.Collectors.toUnmodifiableSet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,7 +35,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -44,7 +43,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 /**
  * A cache that uses a sampled array of entries to implement simple page replacement algorithms.
  * <p>
- * The sampling approach for an approximate of classical policies is described
+ * The sampling approach for an approximation of classical policies is described
  * <a href="http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.110.8469">Efficient Randomized Web
  * Cache Replacement Schemes Using Samples from Past Eviction Times</a>. The Hyperbolic algorithm is
  * a newer addition to this family and is described in
@@ -71,7 +70,7 @@ public final class SampledPolicy implements KeyOnlyPolicy {
     this.admittor = admission.from(config, policyStats);
 
     SampledSettings settings = new SampledSettings(config);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.sampleStrategy = settings.sampleStrategy();
     this.random = new Random(settings.randomSeed());
     this.data = new Long2ObjectOpenHashMap<>();
@@ -85,7 +84,7 @@ public final class SampledPolicy implements KeyOnlyPolicy {
     BasicSettings settings = new BasicSettings(config);
     return settings.admission().stream().map(admission ->
       new SampledPolicy(admission, policy, config)
-    ).collect(toSet());
+    ).collect(toUnmodifiableSet());
   }
 
   @Override
@@ -201,21 +200,22 @@ public final class SampledPolicy implements KeyOnlyPolicy {
     /** Evicts entries based on insertion order. */
     FIFO {
       @Override Node select(List<Node> sample, Random random, long tick) {
-        return sample.stream().min(Comparator.comparingLong(node -> node.insertionTime)).get();
+        return sample.stream().min(Comparator.comparingLong(
+            node -> node.insertionTime)).orElseThrow();
       }
     },
 
     /** Evicts entries based on how recently they are used, with the least recent evicted first. */
     LRU {
       @Override Node select(List<Node> sample, Random random, long tick) {
-        return sample.stream().min(Comparator.comparingLong(node -> node.accessTime)).get();
+        return sample.stream().min(Comparator.comparingLong(node -> node.accessTime)).orElseThrow();
       }
     },
 
     /** Evicts entries based on how recently they are used, with the least recent evicted first. */
     MRU {
       @Override Node select(List<Node> sample, Random random, long tick) {
-        return sample.stream().max(Comparator.comparingLong(node -> node.accessTime)).get();
+        return sample.stream().max(Comparator.comparingLong(node -> node.accessTime)).orElseThrow();
       }
     },
 
@@ -224,7 +224,7 @@ public final class SampledPolicy implements KeyOnlyPolicy {
      */
     LFU {
       @Override Node select(List<Node> sample, Random random, long tick) {
-        return sample.stream().min(Comparator.comparingLong(node -> node.frequency)).get();
+        return sample.stream().min(Comparator.comparingInt(node -> node.frequency)).orElseThrow();
       }
     },
 
@@ -233,7 +233,7 @@ public final class SampledPolicy implements KeyOnlyPolicy {
      */
     MFU {
       @Override Node select(List<Node> sample, Random random, long tick) {
-        return sample.stream().max(Comparator.comparingLong(node -> node.frequency)).get();
+        return sample.stream().max(Comparator.comparingInt(node -> node.frequency)).orElseThrow();
       }
     },
 
@@ -249,7 +249,7 @@ public final class SampledPolicy implements KeyOnlyPolicy {
     HYPERBOLIC {
       @Override Node select(List<Node> sample, Random random, long tick) {
         return sample.stream().min(Comparator.comparingDouble(
-            node -> hyperbolic(node, tick))).get();
+            node -> hyperbolic(node, tick))).orElseThrow();
       }
       double hyperbolic(Node node, long tick) {
         return node.frequency / (double) (tick - node.insertionTime);

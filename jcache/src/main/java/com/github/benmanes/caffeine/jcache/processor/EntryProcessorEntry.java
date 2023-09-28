@@ -64,7 +64,7 @@ public final class EntryProcessorEntry<K, V> implements MutableEntry<K, V> {
     } else if (value != null) {
       action = Action.READ;
     } else if (cacheLoader.isPresent()) {
-      value = cacheLoader.get().load(key);
+      value = cacheLoader.orElseThrow().load(key);
       cacheLoader = Optional.empty();
       if (value != null) {
         action = Action.LOADED;
@@ -90,7 +90,7 @@ public final class EntryProcessorEntry<K, V> implements MutableEntry<K, V> {
     this.value = value;
   }
 
-  /** @return the dominant action performed by the processor on the entry. */
+  /** Returns the dominant action performed by the processor on the entry. */
   public Action getAction() {
     return action;
   }

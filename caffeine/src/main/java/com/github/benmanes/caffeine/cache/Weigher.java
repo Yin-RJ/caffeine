@@ -15,6 +15,7 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static com.github.benmanes.caffeine.cache.Caffeine.requireArgument;
 import static java.util.Objects.requireNonNull;
 
 import java.io.Serializable;
@@ -30,7 +31,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @FunctionalInterface
-public interface Weigher<K extends Object, V extends Object> {
+public interface Weigher<K, V> {
 
   /**
    * Returns the weight of a cache entry. There is no unit for entry weights; rather they are simply
@@ -52,8 +53,8 @@ public interface Weigher<K extends Object, V extends Object> {
    */
   static <K, V> Weigher<K, V> singletonWeigher() {
     @SuppressWarnings("unchecked")
-    Weigher<K, V> self = (Weigher<K, V>) SingletonWeigher.INSTANCE;
-    return self;
+    Weigher<K, V> instance = (Weigher<K, V>) SingletonWeigher.INSTANCE;
+    return instance;
   }
 
   /**
@@ -78,7 +79,9 @@ enum SingletonWeigher implements Weigher<Object, Object> {
 }
 
 final class BoundedWeigher<K, V> implements Weigher<K, V>, Serializable {
-  static final long serialVersionUID = 1;
+  private static final long serialVersionUID = 1;
+
+  @SuppressWarnings("serial")
   final Weigher<? super K, ? super V> delegate;
 
   BoundedWeigher(Weigher<? super K, ? super V> delegate) {
@@ -88,7 +91,7 @@ final class BoundedWeigher<K, V> implements Weigher<K, V>, Serializable {
   @Override
   public int weigh(K key, V value) {
     int weight = delegate.weigh(key, value);
-    Caffeine.requireArgument(weight >= 0);
+    requireArgument(weight >= 0);
     return weight;
   }
 

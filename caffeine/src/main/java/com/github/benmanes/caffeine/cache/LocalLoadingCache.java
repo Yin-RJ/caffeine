@@ -15,6 +15,7 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static com.github.benmanes.caffeine.cache.Caffeine.calculateHashMapCapacity;
 import static com.github.benmanes.caffeine.cache.LocalAsyncCache.composeResult;
 import static java.util.Objects.requireNonNull;
 
@@ -25,8 +26,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -40,8 +43,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 interface LocalLoadingCache<K, V> extends LocalManualCache<K, V>, LoadingCache<K, V> {
   Logger logger = System.getLogger(LocalLoadingCache.class.getName());
 
-  /** Returns the {@link CacheLoader} used by this cache. */
-  CacheLoader<? super K, V> cacheLoader();
+  /** Returns the {@link AsyncCacheLoader} used by this cache. */
+  AsyncCacheLoader<? super K, V> cacheLoader();
 
   /** Returns the {@link CacheLoader#load} as a mapping function. */
   Function<K, V> mappingFunction();
@@ -65,7 +68,7 @@ interface LocalLoadingCache<K, V> extends LocalManualCache<K, V>, LoadingCache<K
 
   /** Sequentially loads each missing entry. */
   default Map<K, V> loadSequentially(Iterable<? extends K> keys) {
-    var result = new LinkedHashMap<K, V>();
+    var result = new LinkedHashMap<K, V>(calculateHashMapCapacity(keys));
     for (K key : keys) {
       result.put(key, null);
     }
@@ -95,26 +98,25 @@ interface LocalLoadingCache<K, V> extends LocalManualCache<K, V>, LoadingCache<K
   default CompletableFuture<V> refresh(K key) {
     requireNonNull(key);
 
-    long[] writeTime = new long[1];
     long[] startTime = new long[1];
     @SuppressWarnings("unchecked")
     V[] oldValue = (V[]) new Object[1];
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings({"rawtypes", "unchecked"})
     CompletableFuture<? extends V>[] reloading = new CompletableFuture[1];
     Object keyReference = cache().referenceKey(key);
 
     var future = cache().refreshes().compute(keyReference, (k, existing) -> {
-      if ((existing != null) && !Async.isReady(existing)) {
+      if ((existing != null) && !Async.isReady(existing) && !cache().isPendingEviction(key)) {
         return existing;
       }
 
       try {
         startTime[0] = cache().statsTicker().read();
-        oldValue[0] = cache().getIfPresentQuietly(key, writeTime);
+        oldValue[0] = cache().getIfPresentQuietly(key);
         var refreshFuture = (oldValue[0] == null)
             ? cacheLoader().asyncLoad(key, cache().executor())
             : cacheLoader().asyncReload(key, oldValue[0], cache().executor());
-        reloading[0] = refreshFuture;
+        reloading[0] = requireNonNull(refreshFuture, "Null future");
         return refreshFuture;
       } catch (RuntimeException e) {
         throw e;
@@ -128,37 +130,25 @@ interface LocalLoadingCache<K, V> extends LocalManualCache<K, V>, LoadingCache<K
 
     if (reloading[0] != null) {
       reloading[0].whenComplete((newValue, error) -> {
-        boolean removed = cache().refreshes().remove(keyReference, reloading[0]);
         long loadTime = cache().statsTicker().read() - startTime[0];
         if (error != null) {
-          logger.log(Level.WARNING, "Exception thrown during refresh", error);
+          if (!(error instanceof CancellationException) && !(error instanceof TimeoutException)) {
+            logger.log(Level.WARNING, "Exception thrown during refresh", error);
+          }
+          cache().refreshes().remove(keyReference, reloading[0]);
           cache().statsCounter().recordLoadFailure(loadTime);
           return;
         }
 
         boolean[] discard = new boolean[1];
         var value = cache().compute(key, (k, currentValue) -> {
-          if (currentValue == oldValue[0]) {
-            if (currentValue == null) {
-              if (newValue == null) {
-                return null;
-              } else if (removed) {
-                return newValue;
-              }
-            } else {
-              long expectedWriteTime = writeTime[0];
-              if (cache().hasWriteTime()) {
-                cache().getIfPresentQuietly(key, writeTime);
-              }
-              if (writeTime[0] == expectedWriteTime) {
-                return newValue;
-              }
-            }
+          boolean removed = cache().refreshes().remove(keyReference, reloading[0]);
+          if (removed && (currentValue == oldValue[0])) {
+            return (currentValue == null) && (newValue == null) ? null : newValue;
           }
           discard[0] = (currentValue != newValue);
           return currentValue;
-        }, cache().expiry(), /* recordMiss */ false,
-            /* recordLoad */ false, /* recordLoadFailure */ true);
+        }, cache().expiry(), /* recordLoad */ false, /* recordLoadFailure */ true);
 
         if (discard[0] && (newValue != null)) {
           var cause = (value == null) ? RemovalCause.EXPLICIT : RemovalCause.REPLACED;
@@ -179,7 +169,7 @@ interface LocalLoadingCache<K, V> extends LocalManualCache<K, V>, LoadingCache<K
 
   @Override
   default CompletableFuture<Map<K, V>> refreshAll(Iterable<? extends K> keys) {
-    var result = new LinkedHashMap<K, CompletableFuture<V>>();
+    var result = new LinkedHashMap<K, CompletableFuture<V>>(calculateHashMapCapacity(keys));
     for (K key : keys) {
       result.computeIfAbsent(key, this::refresh);
     }

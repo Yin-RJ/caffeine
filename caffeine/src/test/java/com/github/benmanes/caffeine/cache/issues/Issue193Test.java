@@ -16,9 +16,9 @@ package com.github.benmanes.caffeine.cache.issues;
 import static com.github.benmanes.caffeine.cache.testing.AsyncCacheSubject.assertThat;
 import static com.google.common.truth.Truth.assertThat;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.testng.annotations.Test;
@@ -30,7 +30,6 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.testing.FakeTicker;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFutureTask;
-import com.google.common.util.concurrent.testing.TestingExecutors;
 
 /**
  * Issue #193: Invalidate before Refresh completes still stores value
@@ -62,12 +61,12 @@ public final class Issue193Test {
   private final String key = Issue193Test.class.getSimpleName();
 
   /** This ensures that any outstanding async loading is completed as well */
-  private long loadGet(AsyncLoadingCache<String, Long> cache, String key) throws Exception {
+  private long loadGet(AsyncLoadingCache<String, Long> cache, String key) {
     CompletableFuture<Long> future = cache.get(key);
     if (!loadingTask.isDone()) {
       loadingTask.run();
     }
-    return future.get();
+    return future.join();
   }
 
   @Test
@@ -75,15 +74,15 @@ public final class Issue193Test {
     var removed = new ArrayList<Long>();
     AsyncLoadingCache<String, Long> cache = Caffeine.newBuilder()
         .removalListener((String key, Long value, RemovalCause reason) -> removed.add(value))
-        .executor(TestingExecutors.sameThreadScheduledExecutor())
-        .refreshAfterWrite(10, TimeUnit.NANOSECONDS)
+        .refreshAfterWrite(Duration.ofNanos(10))
+        .executor(Runnable::run)
         .ticker(ticker::read)
         .buildAsync(loader);
 
     // Load so there is an initial value.
     assertThat(loadGet(cache, key)).isEqualTo(0);
 
-    ticker.advance(11); // Refresh should fire on next access
+    ticker.advance(Duration.ofNanos(11)); // Refresh should fire on next access
     assertThat(cache).containsEntry(key, 0); // Old value
 
     cache.synchronous().invalidate(key); // Invalidate key entirely
@@ -94,6 +93,6 @@ public final class Issue193Test {
     assertThat(cache).doesNotContainKey(key); // Value in cache (bad)
 
     // FIXME: Maybe? This is what I wanted to actually test :)
-    assertThat(removed).containsExactly(0L, 1L).inOrder(); // 1L was sent to removalListener anyways
+    assertThat(removed).containsExactly(0L, 1L).inOrder(); // 1L was sent to removalListener anyway
   }
 }

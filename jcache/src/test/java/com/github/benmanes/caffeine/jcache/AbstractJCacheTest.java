@@ -15,9 +15,9 @@
  */
 package com.github.benmanes.caffeine.jcache;
 
+import java.time.Duration;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.cache.CacheManager;
 import javax.cache.Caching;
@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.testing.FakeTicker;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * A testing harness for simplifying the unit tests.
@@ -42,19 +43,19 @@ import com.google.common.testing.FakeTicker;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @Test(singleThreaded = true)
-@SuppressWarnings("PreferJavaTimeOverload")
 public abstract class AbstractJCacheTest {
-  protected static final long START_TIME_MS = 0L;//System.currentTimeMillis();
-  protected static final long EXPIRY_DURATION = TimeUnit.MINUTES.toMillis(1);
-
+  protected static final Duration EXPIRY_DURATION = Duration.ofMinutes(1);
+  protected static final Duration START_TIME = Duration.ofNanos(
+      ThreadLocalRandom.current().nextLong(Long.MIN_VALUE, Long.MAX_VALUE));
   protected static final Integer KEY_1 = 1, VALUE_1 = -1;
   protected static final Integer KEY_2 = 2, VALUE_2 = -2;
   protected static final Integer KEY_3 = 3, VALUE_3 = -3;
 
-  protected final Set<Integer> keys = ImmutableSet.of(KEY_1, KEY_2, KEY_3);
-  protected final Map<Integer, Integer> entries = ImmutableMap.of(
+  protected final ImmutableSet<Integer> keys = ImmutableSet.of(KEY_1, KEY_2, KEY_3);
+  protected final ImmutableMap<Integer, Integer> entries = ImmutableMap.of(
       KEY_1, VALUE_1, KEY_2, VALUE_2, KEY_3, VALUE_3);
 
+  protected CaffeineConfiguration<Integer, Integer> jcacheConfiguration;
   protected LoadingCacheProxy<Integer, Integer> jcacheLoading;
   protected CacheProxy<Integer, Integer> jcache;
   protected CacheManager cacheManager;
@@ -65,12 +66,14 @@ public abstract class AbstractJCacheTest {
     var provider = Caching.getCachingProvider(CaffeineCachingProvider.class.getName());
     cacheManager = provider.getCacheManager(
         provider.getDefaultURI(), provider.getDefaultClassLoader());
+    cacheManager.getCacheNames().forEach(cacheManager::destroyCache);
   }
 
   @BeforeMethod(alwaysRun = true)
   public void before() {
-    ticker = new FakeTicker().advance(START_TIME_MS, TimeUnit.MILLISECONDS);
-    jcache = (CacheProxy<Integer, Integer>) cacheManager.createCache("jcache", getConfiguration());
+    jcacheConfiguration = getConfiguration();
+    ticker = new FakeTicker().advance(START_TIME);
+    jcache = (CacheProxy<Integer, Integer>) cacheManager.createCache("jcache", jcacheConfiguration);
     jcacheLoading = (LoadingCacheProxy<Integer, Integer>) cacheManager.createCache(
         "jcacheLoading", getLoadingConfiguration());
   }
@@ -93,16 +96,16 @@ public abstract class AbstractJCacheTest {
   }
 
   protected void advanceHalfExpiry() {
-    ticker.advance(EXPIRY_DURATION / 2, TimeUnit.MILLISECONDS);
+    ticker.advance(EXPIRY_DURATION.dividedBy(2));
   }
 
   protected void advancePastExpiry() {
-    ticker.advance(2 * EXPIRY_DURATION, TimeUnit.MILLISECONDS);
+    ticker.advance(EXPIRY_DURATION.multipliedBy(2));
   }
 
   /** @return the current time in milliseconds */
-  protected final long currentTimeMillis() {
-    return TimeUnit.NANOSECONDS.toMillis(ticker.read());
+  protected final Duration currentTime() {
+    return Duration.ofNanos(ticker.read());
   }
 
   /** The loading configuration used by the test. */
@@ -116,6 +119,7 @@ public abstract class AbstractJCacheTest {
   /** The cache loader used by the test. */
   protected CacheLoader<Integer, Integer> getCacheLoader() {
     return new CacheLoader<Integer, Integer>() {
+      @CanIgnoreReturnValue
       @Override public Integer load(Integer key) {
         return key;
       }

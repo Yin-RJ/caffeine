@@ -25,29 +25,28 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.checkerframework.checker.nullness.qual.PolyNull;
 
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import com.google.errorprone.annotations.CheckReturnValue;
 
 /**
  * A semi-persistent mapping from keys to values. Cache entries are manually added using
  * {@link #get(Object, Function)} or {@link #put(Object, Object)}, and are stored in the cache until
  * either evicted or manually invalidated.
  * <p>
- * Implementations of this interface are expected to be thread-safe, and can be safely accessed by
+ * Implementations of this interface are expected to be thread-safe and can be safely accessed by
  * multiple concurrent threads.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  * @param <K> the type of keys maintained by this cache
  * @param <V> the type of mapped values
  */
-public interface Cache<K extends Object, V extends Object> {
+public interface Cache<K, V> {
 
   /**
    * Returns the value associated with the {@code key} in this cache, or {@code null} if there is no
    * cached value for the {@code key}.
    *
    * @param key the key whose associated value is to be returned
-   * @return the value to which the specified key is mapped, or {@code null} if this cache contains
-   *         no mapping for the key
+   * @return the value to which the specified key is mapped, or {@code null} if this cache does not
+   *         contain a mapping for the key
    * @throws NullPointerException if the specified key is null
    */
   @Nullable
@@ -89,7 +88,7 @@ public interface Cache<K extends Object, V extends Object> {
    * ignored.
    *
    * @param keys the keys whose associated values are to be returned
-   * @return the unmodifiable mapping of keys to values for the specified keys found in this cache
+   * @return an unmodifiable mapping of keys to values for the specified keys found in this cache
    * @throws NullPointerException if the specified collection is null or contains a null element
    */
   Map<K, V> getAllPresent(Iterable<? extends K> keys);
@@ -105,7 +104,9 @@ public interface Cache<K extends Object, V extends Object> {
    * the value for a key in {@code keys}, implementations may either have that thread load the entry
    * or simply wait for this thread to finish and return the loaded value. In the case of
    * overlapping non-blocking loads, the last load to complete will replace the existing entry. Note
-   * that multiple threads can concurrently load values for distinct keys.
+   * that multiple threads can concurrently load values for distinct keys. Any loaded values for
+   * keys that were not specifically requested will not be returned, but will be stored in the
+   * cache.
    * <p>
    * Note that duplicate elements in {@code keys}, as determined by {@link Object#equals}, will be
    * ignored.
@@ -180,19 +181,17 @@ public interface Cache<K extends Object, V extends Object> {
    * @return the estimated number of mappings
    */
   @NonNegative
-  @CheckReturnValue
   long estimatedSize();
 
   /**
    * Returns a current snapshot of this cache's cumulative statistics. All statistics are
-   * initialized to zero, and are monotonically increasing over the lifetime of the cache.
+   * initialized to zero and are monotonically increasing over the lifetime of the cache.
    * <p>
    * Due to the performance penalty of maintaining statistics, some implementations may not record
    * the usage history immediately or at all.
    *
    * @return the current snapshot of the statistics of this cache
    */
-  @CheckReturnValue
   CacheStats stats();
 
   /**
@@ -210,7 +209,6 @@ public interface Cache<K extends Object, V extends Object> {
    *
    * @return a thread-safe view of this cache supporting all of the optional {@link Map} operations
    */
-  @CheckReturnValue
   ConcurrentMap<K, V> asMap();
 
   /**
@@ -229,6 +227,5 @@ public interface Cache<K extends Object, V extends Object> {
    *
    * @return access to inspect and perform advanced operations based on the cache's characteristics
    */
-  @CheckReturnValue
   Policy<K, V> policy();
 }

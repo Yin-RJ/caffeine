@@ -26,8 +26,6 @@ import java.util.function.Function;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import com.google.errorprone.annotations.CheckReturnValue;
-
 /**
  * Computes or retrieves values, based on a key, for use in populating a {@link LoadingCache} or
  * {@link AsyncLoadingCache}.
@@ -44,8 +42,8 @@ import com.google.errorprone.annotations.CheckReturnValue;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @FunctionalInterface
-@SuppressWarnings({"PMD.SignatureDeclareThrowsException", "FunctionalInterfaceMethodChanged"})
-public interface CacheLoader<K extends Object, V extends Object> extends AsyncCacheLoader<K, V> {
+@SuppressWarnings({"FunctionalInterfaceMethodChanged", "PMD.SignatureDeclareThrowsException"})
+public interface CacheLoader<K, V> extends AsyncCacheLoader<K, V> {
 
   /**
    * Computes or retrieves the value corresponding to {@code key}.
@@ -66,10 +64,10 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
    * Computes or retrieves the values corresponding to {@code keys}. This method is called by
    * {@link LoadingCache#getAll}.
    * <p>
-   * If the returned map doesn't contain all requested {@code keys} then the entries it does contain
-   * will be cached and {@code getAll} will return the partial results. If the returned map contains
-   * extra keys not present in {@code keys} then all returned entries will be cached, but only the
-   * entries for {@code keys} will be returned from {@code getAll}.
+   * If the returned map doesn't contain all requested {@code keys}, then the entries it does
+   * contain will be cached, and {@code getAll} will return the partial results. If the returned map
+   * contains extra keys not present in {@code keys} then all returned entries will be cached, but
+   * only the entries for {@code keys}, will be returned from {@code getAll}.
    * <p>
    * This method should be overridden when bulk retrieval is significantly more efficient than many
    * individual lookups. Note that {@link LoadingCache#getAll} will defer to individual calls to
@@ -97,7 +95,7 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
    * @return the future value associated with {@code key}
    */
   @Override
-  default CompletableFuture<? extends V> asyncLoad(K key, Executor executor) {
+  default CompletableFuture<? extends V> asyncLoad(K key, Executor executor) throws Exception {
     requireNonNull(key);
     requireNonNull(executor);
     return CompletableFuture.supplyAsync(() -> {
@@ -115,10 +113,10 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
    * Asynchronously computes or retrieves the values corresponding to {@code keys}. This method is
    * called by {@link AsyncLoadingCache#getAll}.
    * <p>
-   * If the returned map doesn't contain all requested {@code keys} then the entries it does contain
-   * will be cached and {@code getAll} will return the partial results. If the returned map contains
-   * extra keys not present in {@code keys} then all returned entries will be cached, but only the
-   * entries for {@code keys} will be returned from {@code getAll}.
+   * If the returned map doesn't contain all requested {@code keys}, then the entries it does
+   * contain will be cached, and {@code getAll} will return the partial results. If the returned map
+   * contains extra keys not present in {@code keys} then all returned entries will be cached, but
+   * only the entries for {@code keys}, will be returned from {@code getAll}.
    * <p>
    * This method should be overridden when bulk retrieval is significantly more efficient than many
    * individual lookups. Note that {@link AsyncLoadingCache#getAll} will defer to individual calls
@@ -133,7 +131,7 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
    */
   @Override
   default CompletableFuture<? extends Map<? extends K, ? extends V>> asyncLoadAll(
-      Set<? extends K> keys, Executor executor) {
+      Set<? extends K> keys, Executor executor) throws Exception {
     requireNonNull(keys);
     requireNonNull(executor);
     return CompletableFuture.supplyAsync(() -> {
@@ -149,7 +147,7 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
 
   /**
    * Computes or retrieves a replacement value corresponding to an already-cached {@code key}. If
-   * the replacement value is not found then the mapping will be removed if {@code null} is
+   * the replacement value is not found, then the mapping will be removed if {@code null} is
    * returned. This method is called when an existing cache entry is refreshed by
    * {@link Caffeine#refreshAfterWrite}, or through a call to {@link LoadingCache#refresh}.
    * <p>
@@ -221,10 +219,9 @@ public interface CacheLoader<K extends Object, V extends Object> extends AsyncCa
    * @return a cache loader that delegates to the supplied {@code mappingFunction}
    * @throws NullPointerException if the mappingFunction is null
    */
-  @CheckReturnValue
   @SuppressWarnings("FunctionalInterfaceClash")
-  static <K extends Object, V extends Object> CacheLoader<K, V> bulk(
-      Function<? super Set<? extends K>, ? extends Map<? extends K, ? extends V>> mappingFunction) {
+  static <K, V> CacheLoader<K, V> bulk(Function<? super Set<? extends K>,
+      ? extends Map<? extends K, ? extends V>> mappingFunction) {
     requireNonNull(mappingFunction);
     return new CacheLoader<K, V>() {
       @Override public @Nullable V load(K key) {

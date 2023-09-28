@@ -45,7 +45,7 @@ public final class AsyncTest {
   private static final long ONE_MINUTE = TimeUnit.MINUTES.toNanos(1);
 
   @Test
-  public void reflectivelyConstruct() throws Exception {
+  public void reflectivelyConstruct() throws ReflectiveOperationException {
     var constructor = Async.class.getDeclaredConstructor();
     constructor.setAccessible(true);
     constructor.newInstance();
@@ -85,7 +85,7 @@ public final class AsyncTest {
       result.set(Async.getWhenSuccessful(future));
     });
     await().untilAtomic(result, is(1));
-    future.obtrudeValue(2);
+    future.complete(2);
     await().untilAtomic(result, is(2));
   }
 
@@ -164,8 +164,7 @@ public final class AsyncTest {
 
   private static AsyncExpiry<Integer, Integer> makeAsyncExpiry(
       long create, long update, long read) {
-    @SuppressWarnings("unchecked")
-    Expiry<Integer, Integer> mock = Mockito.mock(Expiry.class);
+    Expiry<Integer, Integer> mock = Mockito.mock();
     when(mock.expireAfterCreate(any(), any(), anyLong())).thenReturn(create);
     when(mock.expireAfterUpdate(any(), any(), anyLong(), anyLong())).thenReturn(update);
     when(mock.expireAfterRead(any(), any(), anyLong(), anyLong())).thenReturn(read);

@@ -62,12 +62,13 @@ final class BoundedBuffer<E> extends StripedBuffer<E> {
     public RingBuffer(E e) {
       buffer = new Object[BUFFER_SIZE];
       BUFFER.set(buffer, 0, e);
+      WRITE.set(this, 1);
     }
 
     @Override
     public int offer(E e) {
       long head = readCounter;
-      long tail = relaxedWriteCounter();
+      long tail = writeCounterOpaque();
       long size = (tail - head);
       if (size >= BUFFER_SIZE) {
         return Buffer.FULL;
@@ -83,14 +84,15 @@ final class BoundedBuffer<E> extends StripedBuffer<E> {
     @Override
     public void drainTo(Consumer<E> consumer) {
       long head = readCounter;
-      long tail = relaxedWriteCounter();
+      long tail = writeCounterOpaque();
       long size = (tail - head);
       if (size == 0) {
         return;
       }
       do {
         int index = (int) (head & MASK);
-        E e = (E) BUFFER.getVolatile(buffer, index);
+        @SuppressWarnings("unchecked")
+        E e = (E) BUFFER.getAcquire(buffer, index);
         if (e == null) {
           // not published yet
           break;
@@ -99,7 +101,7 @@ final class BoundedBuffer<E> extends StripedBuffer<E> {
         consumer.accept(e);
         head++;
       } while (head != tail);
-      lazySetReadCounter(head);
+      setReadCounterOpaque(head);
     }
 
     @Override
@@ -159,22 +161,18 @@ final class BBHeader {
     byte p232, p233, p234, p235, p236, p237, p238, p239;
   }
 
-  /** Enforces a memory layout to avoid false sharing by padding the write count. */
+  /** Enforces a memory layout to avoid false sharing by padding the write counter. */
   abstract static class ReadAndWriteCounterRef extends PadWriteCounter {
     static final VarHandle READ, WRITE;
 
     volatile long writeCounter;
 
-    ReadAndWriteCounterRef() {
-      WRITE.setOpaque(this, 1);
-    }
-
-    void lazySetReadCounter(long count) {
+    void setReadCounterOpaque(long count) {
       READ.setOpaque(this, count);
     }
 
-    long relaxedWriteCounter() {
-      return (long) WRITE.get(this);
+    long writeCounterOpaque() {
+      return (long) WRITE.getOpaque(this);
     }
 
     boolean casWriteCounter(long expect, long update) {

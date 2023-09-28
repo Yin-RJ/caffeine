@@ -23,7 +23,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.sketch.WindowTinyLfuP
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.HillClimber;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 
@@ -38,7 +37,7 @@ import com.typesafe.config.ConfigFactory;
  */
 @SuppressWarnings("PMD.SuspiciousConstantFieldName")
 public final class MiniSimClimber implements HillClimber {
-  private static final HashFunction hasher = Hashing.murmur3_32(0x7f3a2142);
+  private static final HashFunction hasher = Hashing.murmur3_32_fixed(0x7f3a2142);
 
   private final WindowTinyLfuPolicy[] minis;
   private final long[] prevMisses;
@@ -51,7 +50,7 @@ public final class MiniSimClimber implements HillClimber {
 
   public MiniSimClimber(Config config) {
     MiniSimSettings settings = new MiniSimSettings(config);
-    this.cacheSize = Ints.checkedCast(settings.maximumSize());
+    this.cacheSize = Math.toIntExact(settings.maximumSize());
     R = (cacheSize / 1000) > 100 ? 1000 : (cacheSize / 100);
     WindowTinyLfuSettings simulationSettings = new WindowTinyLfuSettings(ConfigFactory
         .parseString("maximum-size = " + cacheSize / R)
@@ -59,7 +58,7 @@ public final class MiniSimClimber implements HillClimber {
     this.prevPercent = 1 - settings.percentMain().get(0);
     this.period = settings.minisimPeriod();
     this.minis = new WindowTinyLfuPolicy[101];
-    this.prevMisses = new long[101];
+    this.prevMisses = new long[minis.length];
 
     for (int i = 0; i < minis.length; i++) {
       double percentMain = 1.0 - (i / 100.0);
@@ -94,7 +93,7 @@ public final class MiniSimClimber implements HillClimber {
       return Adaptation.hold();
     }
 
-    long[] periodMisses = new long[101];
+    long[] periodMisses = new long[minis.length];
     for (int i = 0; i < minis.length; i++) {
       periodMisses[i] = minis[i].stats().missCount() - prevMisses[i];
       prevMisses[i] = minis[i].stats().missCount();

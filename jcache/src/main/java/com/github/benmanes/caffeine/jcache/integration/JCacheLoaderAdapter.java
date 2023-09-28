@@ -16,13 +16,13 @@
 package com.github.benmanes.caffeine.jcache.integration;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toUnmodifiableMap;
 
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import javax.cache.expiry.Duration;
 import javax.cache.expiry.ExpiryPolicy;
@@ -106,7 +106,7 @@ public final class JCacheLoaderAdapter<K, V>
 
       Map<K, Expirable<V>> result = delegate.loadAll(keys).entrySet().stream()
           .filter(entry -> (entry.getKey() != null) && (entry.getValue() != null))
-          .collect(Collectors.toMap(Map.Entry::getKey,
+          .collect(toUnmodifiableMap(Map.Entry::getKey,
               entry -> new Expirable<>(entry.getValue(), expireTimeMS())));
       for (var entry : result.entrySet()) {
         dispatcher.publishCreated(cache, entry.getKey(), entry.getValue().get());
@@ -124,7 +124,6 @@ public final class JCacheLoaderAdapter<K, V>
     }
   }
 
-  @SuppressWarnings("CatchingUnchecked")
   private long expireTimeMS() {
     try {
       Duration duration = expiry.getExpiryForCreation();
@@ -135,7 +134,7 @@ public final class JCacheLoaderAdapter<K, V>
       }
       long millis = TimeUnit.NANOSECONDS.toMillis(ticker.read());
       return duration.getAdjustedTime(millis);
-    } catch (Exception e) {
+    } catch (RuntimeException e) {
       logger.log(Level.WARNING, "Exception thrown by expiry policy", e);
       throw e;
     }

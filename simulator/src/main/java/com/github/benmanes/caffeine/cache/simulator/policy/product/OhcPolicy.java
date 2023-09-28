@@ -17,7 +17,7 @@ package com.github.benmanes.caffeine.cache.simulator.policy.product;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Locale.US;
-import static java.util.stream.Collectors.toSet;
+import static java.util.stream.Collectors.toUnmodifiableSet;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -53,9 +53,9 @@ public final class OhcPolicy implements KeyOnlyPolicy {
     policyStats = new PolicyStats(name() + " (%s)", (policy == Eviction.LRU) ? "Lru" : "W-TinyLfu");
     cache = OHCacheBuilder.<Long, Long>newBuilder()
         .capacity(ENTRY_SIZE * settings.maximumSize())
+        .valueSerializer(LongSerializer.INSTANCE)
+        .keySerializer(LongSerializer.INSTANCE)
         .edenSize(settings.percentEden())
-        .valueSerializer(longSerializer)
-        .keySerializer(longSerializer)
         .eviction(policy)
         .build();
   }
@@ -65,7 +65,7 @@ public final class OhcPolicy implements KeyOnlyPolicy {
     OhcSettings settings = new OhcSettings(config);
     return settings.policy().stream()
         .map(policy -> new OhcPolicy(settings, policy))
-        .collect(toSet());
+        .collect(toUnmodifiableSet());
   }
 
   @Override
@@ -120,7 +120,9 @@ public final class OhcPolicy implements KeyOnlyPolicy {
     }
   }
 
-  static final CacheSerializer<Long> longSerializer = new CacheSerializer<Long>() {
+  static final class LongSerializer implements CacheSerializer<Long> {
+    static final LongSerializer INSTANCE = new LongSerializer();
+
     @Override public void serialize(Long value, ByteBuffer buffer) {
       buffer.putLong(value);
     }
@@ -130,5 +132,5 @@ public final class OhcPolicy implements KeyOnlyPolicy {
     @Override public int serializedSize(Long value) {
       return Long.BYTES;
     }
-  };
+  }
 }

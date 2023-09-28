@@ -15,18 +15,18 @@
  */
 package com.github.benmanes.caffeine.examples.writebehind.rxjava;
 
-import java.time.ZoneId;
+import static java.time.temporal.ChronoUnit.DAYS;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.is;
+
+import java.time.Duration;
 import java.time.ZonedDateTime;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BinaryOperator;
 
-import org.awaitility.Awaitility;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -39,67 +39,62 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 public final class WriteBehindCacheWriterTest {
 
   @Test
-  public void givenCacheUpdate_writeBehindIsCalled() {
-    AtomicBoolean writerCalled = new AtomicBoolean(false);
+  public void singleKey() {
+    var writerCalled = new AtomicBoolean();
 
     // Given this cache...
-    var writer = new WriteBehindCacheWriter.Builder<Long, ZonedDateTime>()
-        .bufferTime(1, TimeUnit.SECONDS)
+    var writer = new WriteBehindCacheWriter.Builder<Integer, ZonedDateTime>()
         .coalesce(BinaryOperator.maxBy(ZonedDateTime::compareTo))
         .writeAction(entries -> writerCalled.set(true))
+        .bufferTime(Duration.ofSeconds(1))
         .build();
-    Cache<Long, ZonedDateTime> cache = Caffeine.newBuilder().build();
+    Cache<Integer, ZonedDateTime> cache = Caffeine.newBuilder().build();
 
-    // When this cache update happens ...
-    cache.asMap().computeIfAbsent(1L, key -> {
+    // When this cache update happens...
+    cache.asMap().computeIfAbsent(1, key -> {
       var value = ZonedDateTime.now();
-      writer.write(key, value);
+      writer.accept(key, value);
       return value;
     });
 
     // Then the write behind action is called
-    Awaitility.await().untilTrue(writerCalled);
+    await().untilTrue(writerCalled);
   }
 
   @Test
-  public void givenCacheUpdateOnMultipleKeys_writeBehindIsCalled() {
-    AtomicBoolean writerCalled = new AtomicBoolean(false);
-    AtomicInteger numberOfEntries = new AtomicInteger(0);
+  public void multipleKeys() {
+    var numberOfEntries = new AtomicInteger();
 
     // Given this cache...
-    var writer = new WriteBehindCacheWriter.Builder<Long, ZonedDateTime>()
-        .bufferTime(1, TimeUnit.SECONDS)
+    var writer = new WriteBehindCacheWriter.Builder<Integer, ZonedDateTime>()
+        .writeAction(entries -> numberOfEntries.addAndGet(entries.size()))
         .coalesce(BinaryOperator.maxBy(ZonedDateTime::compareTo))
-        .writeAction(entries -> {
-          numberOfEntries.set(entries.size());
-          writerCalled.set(true);
-        }).build();
-    Cache<Long, ZonedDateTime> cache = Caffeine.newBuilder().build();
+        .bufferTime(Duration.ofSeconds(1))
+        .build();
+    Cache<Integer, ZonedDateTime> cache = Caffeine.newBuilder().build();
 
-    // When these cache updates happen ...
-    for (long i = 1L; i <= 3L; i++) {
+    // When these cache updates happen...
+    for (int i = 1; i <= 3; i++) {
       cache.asMap().computeIfAbsent(i, key -> {
         var value = ZonedDateTime.now();
-        writer.write(key, value);
+        writer.accept(key, value);
         return value;
       });
     }
 
     // Then the write behind action gets 3 entries to write
-    Awaitility.await().untilTrue(writerCalled);
-    Assert.assertEquals(3, numberOfEntries.intValue());
+    await().untilAtomic(numberOfEntries, is(3));
   }
 
   @Test
-  public void givenMultipleCacheUpdatesOnSameKey_writeBehindIsCalledWithMostRecentTime() {
-    AtomicBoolean writerCalled = new AtomicBoolean(false);
-    AtomicInteger numberOfEntries = new AtomicInteger(0);
-    AtomicReference<ZonedDateTime> timeInWriteBehind = new AtomicReference<>();
+  public void singleKey_mostRecent() {
+    var timeInWriteBehind = new AtomicReference<ZonedDateTime>();
+    var numberOfEntries = new AtomicInteger();
 
     // Given this cache...
     var writer = new WriteBehindCacheWriter.Builder<Long, ZonedDateTime>()
-        .bufferTime(1, TimeUnit.SECONDS)
         .coalesce(BinaryOperator.maxBy(ZonedDateTime::compareTo))
+        .bufferTime(Duration.ofSeconds(1))
         .writeAction(entries -> {
           // We might get here before the cache has been written to,
           // so just wait for the next time we are called
@@ -107,30 +102,26 @@ public final class WriteBehindCacheWriterTest {
             return;
           }
 
-          numberOfEntries.set(entries.size());
-          ZonedDateTime zonedDateTime = entries.values().iterator().next();
+          var zonedDateTime = entries.values().iterator().next();
           timeInWriteBehind.set(zonedDateTime);
-          writerCalled.set(true);
+          numberOfEntries.set(entries.size());
         }).build();
     Cache<Long, ZonedDateTime> cache = Caffeine.newBuilder().build();
 
-    // When these cache updates happen ...
-    var values = List.of(
-        ZonedDateTime.of(2016, 6, 26, 8, 0, 0, 0, ZoneId.systemDefault()),
-        ZonedDateTime.of(2016, 6, 26, 8, 0, 0, 100, ZoneId.systemDefault()),
-        ZonedDateTime.of(2016, 6, 26, 8, 0, 0, 300, ZoneId.systemDefault()),
-        ZonedDateTime.of(2016, 6, 26, 8, 0, 0, 500, ZoneId.systemDefault()));
-    for (var value : values) {
+    // When these cache updates happen...
+    var latest = ZonedDateTime.now().truncatedTo(DAYS);
+    for (int i = 0; i < 4; i++) {
+      latest = latest.plusNanos(200);
+
+      var value = latest;
       cache.asMap().compute(1L, (key, oldValue) -> {
-        writer.write(key, value);
+        writer.accept(key, value);
         return value;
       });
     }
-    var mostRecentTime = values.get(values.size() - 1);
 
     // Then the write behind action gets 1 entry to write with the most recent time
-    Awaitility.await().untilTrue(writerCalled);
-    Assert.assertEquals(1, numberOfEntries.intValue());
-    Assert.assertEquals(mostRecentTime, timeInWriteBehind.get());
+    await().untilAtomic(numberOfEntries, is(1));
+    await().untilAtomic(timeInWriteBehind, is(latest));
   }
 }

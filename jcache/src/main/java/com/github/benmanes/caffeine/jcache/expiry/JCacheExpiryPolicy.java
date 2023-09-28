@@ -76,10 +76,4 @@ public final class JCacheExpiryPolicy implements ExpiryPolicy, Serializable {
   public int hashCode() {
     return Objects.hash(creation, update, access);
   }
-
-  @Override
-  public String toString() {
-    return String.format("%s{creation=%s, update=%s, access=%s}",
-        getClass().getSimpleName(), creation, update, access);
-  }
 }

@@ -16,10 +16,13 @@
 package com.github.benmanes.caffeine.cache.local;
 
 import java.util.Set;
+import java.util.TreeSet;
 
 import javax.lang.model.element.Modifier;
 
 import com.github.benmanes.caffeine.cache.Feature;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
@@ -32,19 +35,21 @@ public final class LocalCacheContext {
   public final String className;
   public final TypeName superClass;
   public final TypeSpec.Builder cache;
-  public final Set<Feature> parentFeatures;
-  public final Set<Feature> generateFeatures;
   public final MethodSpec.Builder constructor;
+  public final Set<String> suppressedWarnings;
+  public final ImmutableSet<Feature> parentFeatures;
+  public final ImmutableSet<Feature> generateFeatures;
 
   public LocalCacheContext(TypeName superClass, String className, boolean isFinal,
       Set<Feature> parentFeatures, Set<Feature> generateFeatures) {
     this.isFinal = isFinal;
     this.className = className;
     this.superClass = superClass;
-    this.parentFeatures = parentFeatures;
-    this.generateFeatures = generateFeatures;
+    this.suppressedWarnings = new TreeSet<>();
     this.cache = TypeSpec.classBuilder(className);
     this.constructor = MethodSpec.constructorBuilder();
+    this.parentFeatures = Sets.immutableEnumSet(parentFeatures);
+    this.generateFeatures = Sets.immutableEnumSet(generateFeatures);
   }
 
   public Modifier[] publicFinalModifiers() {

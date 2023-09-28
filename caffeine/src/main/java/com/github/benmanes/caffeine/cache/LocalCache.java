@@ -52,14 +52,8 @@ interface LocalCache<K, V> extends ConcurrentMap<K, V> {
   /** Returns the map of in-flight refresh operations. */
   ConcurrentMap<Object, CompletableFuture<?>> refreshes();
 
-  /** Returns whether the cache captures the write time of the entry. */
-  boolean hasWriteTime();
-
   /** Returns the {@link Expiry} used by this cache. */
   @Nullable Expiry<K, V> expiry();
-
-  /** Returns the {@link Ticker} used by this cache for expiration. */
-  Ticker expirationTicker();
 
   /** Returns the {@link Ticker} used by this cache for statistics. */
   Ticker statsTicker();
@@ -71,36 +65,47 @@ interface LocalCache<K, V> extends ConcurrentMap<K, V> {
   Object referenceKey(K key);
 
   /**
+   * Returns whether an absent entry has expired or has been reference collected but has not yet
+   * been removed from the cache.
+   */
+  boolean isPendingEviction(K key);
+
+  /**
    * See {@link Cache#getIfPresent(K)}. This method differs by accepting a parameter of whether
-   * to record the hit and miss statistics based on the success of this operation.
+   * to record the hit-and-miss statistics based on the success of this operation.
    */
   @Nullable
   V getIfPresent(K key, boolean recordStats);
 
   /**
    * See {@link Cache#getIfPresent(K)}. This method differs by not recording the access with
-   * the statistics nor the eviction policy, and populates the write time if known.
+   * the statistics nor the eviction policy.
    */
   @Nullable
-  V getIfPresentQuietly(K key, long[/* 1 */] writeTime);
+  V getIfPresentQuietly(K key);
 
   /** See {@link Cache#getAllPresent}. */
   Map<K, V> getAllPresent(Iterable<? extends K> keys);
+
+  /**
+   * See {@link ConcurrentMap#replace(K, K, V)}. This method differs by optionally not discarding an
+   * in-flight refresh for the entry if replaced.
+   */
+  boolean replace(K key, V oldValue, V newValue, boolean shouldDiscardRefresh);
 
   @Override
   default @Nullable V compute(K key,
       BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
     return compute(key, remappingFunction, expiry(),
-        /* recordMiss */ false, /* recordLoad */ true, /* recordLoadFailure */ true);
+        /* recordLoad */ true, /* recordLoadFailure */ true);
   }
 
   /**
    * See {@link ConcurrentMap#compute}. This method differs by accepting parameters indicating
-   * whether to record miss and load statistics based on the success of this operation.
+   * whether to record load statistics based on the success of this operation.
    */
   @Nullable V compute(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction,
-      @Nullable Expiry<K, V> expiry, boolean recordMiss,
-      boolean recordLoad, boolean recordLoadFailure);
+      @Nullable Expiry<? super K, ? super V> expiry, boolean recordLoad, boolean recordLoadFailure);
 
   @Override
   default @Nullable V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
@@ -179,22 +184,18 @@ interface LocalCache<K, V> extends ConcurrentMap<K, V> {
   /** Decorates the remapping function to record statistics if enabled. */
   default <T, U, R> BiFunction<? super T, ? super U, ? extends R> statsAware(
       BiFunction<? super T, ? super U, ? extends R> remappingFunction) {
-    return statsAware(remappingFunction, /* recordMiss */ true,
-        /* recordLoad */ true, /* recordLoadFailure */ true);
+    return statsAware(remappingFunction, /* recordLoad */ true, /* recordLoadFailure */ true);
   }
 
   /** Decorates the remapping function to record statistics if enabled. */
   default <T, U, R> BiFunction<? super T, ? super U, ? extends R> statsAware(
       BiFunction<? super T, ? super U, ? extends R> remappingFunction,
-      boolean recordMiss, boolean recordLoad, boolean recordLoadFailure) {
+      boolean recordLoad, boolean recordLoadFailure) {
     if (!isRecordingStats()) {
       return remappingFunction;
     }
     return (t, u) -> {
       R result;
-      if ((u == null) && recordMiss) {
-        statsCounter().recordMisses(1);
-      }
       long startTime = statsTicker().read();
       try {
         result = remappingFunction.apply(t, u);

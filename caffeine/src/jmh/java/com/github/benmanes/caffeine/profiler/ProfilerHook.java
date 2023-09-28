@@ -15,6 +15,8 @@
  */
 package com.github.benmanes.caffeine.profiler;
 
+import static java.util.Locale.US;
+
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
@@ -28,8 +30,8 @@ import com.google.common.base.Stopwatch;
  * @author Ben Manes (ben.manes@gmail.com)
  */
 public abstract class ProfilerHook {
-  static int DISPLAY_DELAY_SEC = 5;
-  static int NUM_THREADS = 8;
+  static final int DISPLAY_DELAY_SEC = 5;
+  static final int NUM_THREADS = 8;
 
   protected final LongAdder calls;
 
@@ -50,7 +52,7 @@ public abstract class ProfilerHook {
     Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
       long count = calls.longValue();
       long rate = count / stopwatch.elapsed(TimeUnit.SECONDS);
-      System.out.printf("%s - %,d [%,d / sec]%n", stopwatch, count, rate);
+      System.out.printf(US, "%s - %,d [%,d / sec]%n", stopwatch, count, rate);
     }, DISPLAY_DELAY_SEC, DISPLAY_DELAY_SEC, TimeUnit.SECONDS);
   }
 }

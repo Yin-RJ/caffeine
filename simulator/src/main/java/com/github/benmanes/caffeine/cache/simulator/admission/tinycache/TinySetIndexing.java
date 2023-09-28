@@ -15,10 +15,12 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.admission.tinycache;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+
 /**
  * An implementation of TinySet's indexing method. A method to index a succinct hash table that is
- * only 2 bits from theoretical lower bound. This is only the indexing technique and it helps
- * calculate offsets in array using two indexes. chainIndex - (set bit for non empty chain/unset for
+ * only 2 bits from theoretical lower bound. This is only the indexing technique, and it helps
+ * calculate offsets in array using two indexes. chainIndex - (set bit for non-empty chain/unset for
  * empty) isLastIndex (set bit for last in chain/empty bit for not last in chain). Both indexes are
  * assumed to be 64 bits, (longs) for efficiency and simplicity. The technique update the indexes
  * upon addition/removal.
@@ -52,6 +54,7 @@ final class TinySetIndexing {
     return Long.bitCount(index & ~(-1L << bitNum));
   }
 
+  @CanIgnoreReturnValue
   public int getChain(HashedItem fpaux, long[] chainIndex, long[] isLastIndex) {
     int requiredChainNumber = rank(chainIndex[fpaux.set], fpaux.chainId);
     int currentChainNumber = rank(isLastIndex[fpaux.set], requiredChainNumber);

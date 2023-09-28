@@ -82,10 +82,11 @@ public final class Indicator {
     return (getHint() * (skew < 1 ? 1 - Math.pow(skew, 3) : 0)) / 15.0;
   }
 
-  private static class Hinter {
+  private static final class Hinter {
+    final int[] freq = new int[16];
+
     int sum;
     int count;
-    int[] freq = new int[16];
 
     public void increment(int i) {
       sum += i;
@@ -99,11 +100,11 @@ public final class Indicator {
     }
 
     public double getAverage() {
-      return ((double) sum) / ((double) count);
+      return sum / (double) count;
     }
   }
 
-  private class EstSkew {
+  private final class EstSkew {
     StreamSummary<Long> stream;
 
     public EstSkew() {

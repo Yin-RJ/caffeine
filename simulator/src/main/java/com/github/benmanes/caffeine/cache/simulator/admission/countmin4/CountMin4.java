@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
 import com.github.benmanes.caffeine.cache.simulator.admission.Frequency;
 import com.google.common.math.IntMath;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.typesafe.config.Config;
 
 /**
@@ -44,6 +45,7 @@ public abstract class CountMin4 implements Frequency {
    * Creates a frequency sketch that can accurately estimate the popularity of elements given
    * the maximum size of the cache.
    */
+  @SuppressWarnings("this-escape")
   protected CountMin4(Config config) {
     BasicSettings settings = new BasicSettings(config);
     conservative = settings.tinyLfu().conservative();
@@ -51,7 +53,6 @@ public abstract class CountMin4 implements Frequency {
     double countersMultiplier = settings.tinyLfu().countMin4().countersMultiplier();
     long counters = (long) (countersMultiplier * settings.maximumSize());
     ensureCapacity(counters);
-
   }
 
   /**
@@ -93,7 +94,7 @@ public abstract class CountMin4 implements Frequency {
 
   /**
    * Increments the popularity of the element if it does not exceed the maximum (15). The popularity
-   * of all elements will be periodically down sampled when the observed events exceeds a threshold.
+   * of all elements will be periodically down sampled when the observed events exceed a threshold.
    * This process provides a frequency aging to allow expired long term entries to fade away.
    *
    * @param e the element to add
@@ -154,7 +155,7 @@ public abstract class CountMin4 implements Frequency {
   }
 
   /** Performs the aging process after an addition to allow old entries to fade away. */
-  protected void tryReset(boolean added) {}
+  protected abstract void tryReset(boolean added);
 
   /**
    * Increments the specified counter by 1 if it is not already at the maximum value (15).
@@ -164,6 +165,7 @@ public abstract class CountMin4 implements Frequency {
    * @param step the increase amount
    * @return if incremented
    */
+  @CanIgnoreReturnValue
   boolean incrementAt(int i, int j, long step) {
     int offset = j << 2;
     long mask = (0xfL << offset);

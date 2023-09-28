@@ -22,7 +22,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -43,7 +42,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  * hand, we have a cache hit on a cold buffer, it turns into a warm buffer and goes to the front of
  * the warm queue. Then as the warm queue lengthens, buffers start slipping from the end onto the
  * cold queue. Both the hot and warm queues are capped at one third of memory each to ensure
- * balance."
+ * balance.
  * <p>
  * Scan resistance is achieved by means of the warm queue. Transient data will pass from hot queue
  * to cold queue and be recycled. Responsiveness is maintained by making the warm queue LRU so that
@@ -68,6 +67,7 @@ public class TuQueuePolicy implements KeyOnlyPolicy {
   private int sizeCold;
   private final Node headCold;
 
+  @SuppressWarnings("this-escape")
   public TuQueuePolicy(Config config) {
     TuQueueSettings settings = new TuQueueSettings(config);
 
@@ -76,7 +76,7 @@ public class TuQueuePolicy implements KeyOnlyPolicy {
     this.headCold = new Node();
     this.data = new Long2ObjectOpenHashMap<>();
     this.policyStats = new PolicyStats(name());
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.maxHot = (int) (maximumSize * settings.percentHot());
     this.maxWarm = (int) (maximumSize * settings.percentWarm());
   }
@@ -210,8 +210,6 @@ public class TuQueuePolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
-
       prev.next = next;
       next.prev = prev;
       prev = next = null;

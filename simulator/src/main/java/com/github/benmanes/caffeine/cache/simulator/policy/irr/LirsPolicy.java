@@ -25,7 +25,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -55,6 +54,9 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  */
 @PolicySpec(name = "irr.Lirs")
 public final class LirsPolicy implements KeyOnlyPolicy {
+  // Enable to print out the internal state
+  private static final boolean debug = false;
+
   final Long2ObjectMap<Node> data;
   final PolicyStats policyStats;
   final List<Object> evicted;
@@ -72,12 +74,9 @@ public final class LirsPolicy implements KeyOnlyPolicy {
   int sizeHot;
   int residentSize;
 
-  // Enable to print out the internal state
-  static final boolean debug = false;
-
   public LirsPolicy(Config config) {
     LirsSettings settings = new LirsSettings(config);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.maximumNonResidentSize = (int) (maximumSize * settings.nonResidentMultiplier());
     this.maximumHotSize = (int) (maximumSize * settings.percentHot());
     this.policyStats = new PolicyStats(name());
@@ -340,8 +339,8 @@ public final class LirsPolicy implements KeyOnlyPolicy {
   }
 
   // S holds three types of blocks, LIR blocks, resident HIR blocks, non-resident HIR blocks
-  // Q holds all of the resident HIR blocks
-  // NR holds all of the non-resident HIR blocks
+  // Q holds the resident HIR blocks
+  // NR holds the non-resident HIR blocks
   enum StackType {
     // We store LIR blocks and HIR blocks with their recencies less than the maximum recency of the
     // LIR blocks in a stack called LIRS stack S. S is similar to the LRU stack in operation but has
@@ -384,8 +383,6 @@ public final class LirsPolicy implements KeyOnlyPolicy {
     }
 
     public boolean isInStack(StackType stackType) {
-      checkState(key != Long.MIN_VALUE);
-
       if (stackType == StackType.S) {
         return isInS;
       } else if (stackType == StackType.Q) {

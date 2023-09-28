@@ -16,6 +16,7 @@
 package com.github.benmanes.caffeine.jcache.configuration;
 
 import static com.google.common.truth.Truth8.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import java.util.function.Supplier;
 
@@ -25,11 +26,11 @@ import javax.cache.CacheManager;
 import javax.cache.Caching;
 import javax.cache.configuration.MutableConfiguration;
 
-import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import com.github.benmanes.caffeine.jcache.spi.CaffeineCachingProvider;
+import com.google.common.testing.EqualsTester;
 
 /**
  * @author Nick Robison (github.com/nickrobison)
@@ -44,11 +45,20 @@ public final class JCacheConfigurationTest {
   public void beforeClass() {
     var provider = Caching.getCachingProvider(PROVIDER_NAME);
     cacheManager = provider.getCacheManager();
-    cacheManager.destroyCache("cache-not-in-config-file");
+    cacheManager.getCacheNames().forEach(cacheManager::destroyCache);
 
     cacheConfig = new MutableConfiguration<>();
     cacheConfig.setTypes(String.class, String.class);
     cacheConfig.setStatisticsEnabled(true);
+  }
+
+  @Test
+  public void equality() {
+    new EqualsTester()
+        .addEqualityGroup(cacheConfig,
+            new MutableConfiguration<>(new CaffeineConfiguration<>(cacheConfig)))
+        .addEqualityGroup(new CaffeineConfiguration<>(cacheConfig))
+    .testEquals();
   }
 
   @Test
@@ -61,10 +71,8 @@ public final class JCacheConfigurationTest {
 
   @Test
   public void definedCache() {
-    try {
-      cacheManager.createCache("test-cache-2", cacheConfig);
-      Assert.fail();
-    } catch (CacheException ignored) {}
+    assertThrows(CacheException.class, () ->
+        cacheManager.createCache("test-cache-2", cacheConfig));
 
     checkConfiguration(() ->
         cacheManager.getCache("test-cache-2", String.class, Integer.class), 1000L);

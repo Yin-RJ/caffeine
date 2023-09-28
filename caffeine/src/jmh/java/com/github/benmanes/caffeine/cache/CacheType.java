@@ -22,18 +22,20 @@ import org.jctools.maps.NonBlockingHashMap;
 
 import com.github.benmanes.caffeine.cache.impl.Cache2k;
 import com.github.benmanes.caffeine.cache.impl.CaffeineCache;
+import com.github.benmanes.caffeine.cache.impl.CoherenceCache;
 import com.github.benmanes.caffeine.cache.impl.ConcurrentHashMapV7;
 import com.github.benmanes.caffeine.cache.impl.ConcurrentMapCache;
 import com.github.benmanes.caffeine.cache.impl.Ehcache3;
-import com.github.benmanes.caffeine.cache.impl.ElasticSearchCache;
-import com.github.benmanes.caffeine.cache.impl.ExpiringMapCache;
 import com.github.benmanes.caffeine.cache.impl.GuavaCache;
+import com.github.benmanes.caffeine.cache.impl.HazelcastCache;
 import com.github.benmanes.caffeine.cache.impl.LinkedHashMapCache;
 import com.github.benmanes.caffeine.cache.impl.TCache;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
+import com.tangosol.net.cache.LocalCache;
 import com.trivago.triava.tcache.EvictionPolicy;
 
 import net.jodah.expiringmap.ExpirationPolicy;
+import net.jodah.expiringmap.ExpiringMap;
 
 /**
  * A factory for creating a {@link BasicCache} implementation.
@@ -57,8 +59,8 @@ public enum CacheType {
   },
   NonBlockingHashMap {
     @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
-      // Note that writes that update an entry to the same reference are short circuited
-      // and do not mutate the hash table. This makes those writes equal to a read.
+      // Note that writes that update an entry to the same reference are short-circuited
+      // and do not mutate the hash table. This causes those writes to be equivalent to a read.
       return new ConcurrentMapCache<>(new NonBlockingHashMap<>(maximumSize));
     }
   },
@@ -75,6 +77,24 @@ public enum CacheType {
       return new CaffeineCache<>(maximumSize);
     }
   },
+  Coherence_Lru {
+    @SuppressWarnings("deprecation")
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new CoherenceCache<>(maximumSize, LocalCache.EVICTION_POLICY_LRU);
+    }
+  },
+  Coherence_Lfu {
+    @SuppressWarnings("deprecation")
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new CoherenceCache<>(maximumSize, LocalCache.EVICTION_POLICY_LFU);
+    }
+  },
+  Coherence_Hybrid {
+    @SuppressWarnings("deprecation")
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new CoherenceCache<>(maximumSize, LocalCache.EVICTION_POLICY_HYBRID);
+    }
+  },
   ConcurrentLinkedHashMap {
     @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
       return new ConcurrentMapCache<>(
@@ -89,19 +109,20 @@ public enum CacheType {
       return new Ehcache3<>(maximumSize);
     }
   },
-  ElasticSearch {
-    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
-      return new ElasticSearchCache<>(maximumSize);
-    }
-  },
   ExpiringMap_Fifo {
     @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
-      return new ExpiringMapCache<>(maximumSize, ExpirationPolicy.CREATED);
+      return new ConcurrentMapCache<>(ExpiringMap.builder()
+          .expirationPolicy(ExpirationPolicy.CREATED)
+          .maxSize(maximumSize)
+          .build());
     }
   },
   ExpiringMap_Lru {
     @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
-      return new ExpiringMapCache<>(maximumSize, ExpirationPolicy.ACCESSED);
+      return new ConcurrentMapCache<>(ExpiringMap.builder()
+          .expirationPolicy(ExpirationPolicy.ACCESSED)
+          .maxSize(maximumSize)
+          .build());
     }
   },
   Guava {
@@ -109,12 +130,27 @@ public enum CacheType {
       return new GuavaCache<>(maximumSize);
     }
   },
+  Hazelcast_Lfu {
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new HazelcastCache<>(maximumSize, com.hazelcast.config.EvictionPolicy.LFU);
+    }
+  },
+  Hazelcast_Lru {
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new HazelcastCache<>(maximumSize, com.hazelcast.config.EvictionPolicy.LRU);
+    }
+  },
+  Hazelcast_Random {
+    @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
+      return new HazelcastCache<>(maximumSize, com.hazelcast.config.EvictionPolicy.RANDOM);
+    }
+  },
   Jackrabbit {
     @Override public <K, V> BasicCache<K, V> create(int maximumSize) {
-      return new GuavaCache<>(CacheLIRS.<K, V>newBuilder()
+      return new ConcurrentMapCache<>(CacheLIRS.<K, V>newBuilder()
           .segmentCount(CONCURRENCY_LEVEL)
           .maximumSize(maximumSize)
-          .build());
+          .build().asMap());
     }
   },
   LinkedHashMap_Lru {
@@ -138,7 +174,7 @@ public enum CacheType {
 
   /**
    * Creates the cache with the maximum size. Note that some implementations may evict prior to
-   * this threshold and it is the caller's responsibility to adjust accordingly.
+   * this threshold, and it is the caller's responsibility to adjust accordingly.
    */
   public abstract <K, V> BasicCache<K, V> create(int maximumSize);
 }

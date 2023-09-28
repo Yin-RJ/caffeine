@@ -29,6 +29,7 @@ import com.google.common.collect.testing.SampleElements;
 import com.google.common.collect.testing.TestQueueGenerator;
 import com.google.common.collect.testing.features.CollectionFeature;
 import com.google.common.collect.testing.features.CollectionSize;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 import junit.framework.Test;
 import junit.framework.TestCase;
@@ -46,11 +47,11 @@ public final class LinkedDequeTests extends TestCase {
   static final LinkedValue d = new LinkedValue("d");
   static final LinkedValue e = new LinkedValue("e");
 
-  // Due to stateful elements, tests calling resetCollection() for an comparable iterator will
-  // cause unexpected mutations. Instead a different collection type should be used for comparison
+  // Due to stateful elements, tests calling resetCollection() for a comparable iterator will
+  // cause unexpected mutations. Instead, a different collection type should be used for comparison
   static final ThreadLocal<Boolean> useTarget = ThreadLocal.withInitial(() -> false);
 
-  public static Test suite() throws Exception {
+  public static Test suite() {
     var suite = new TestSuite();
     suite.addTest(suite("AccessOrderDeque", AccessOrderDeque::new));
     suite.addTest(suite("WriteOrderDeque", WriteOrderDeque::new));
@@ -69,6 +70,7 @@ public final class LinkedDequeTests extends TestCase {
         })
         .named(name)
         .withFeatures(
+            CollectionFeature.FAILS_FAST_ON_CONCURRENT_MODIFICATION,
             CollectionFeature.ALLOWS_NULL_QUERIES,
             CollectionFeature.GENERAL_PURPOSE,
             CollectionFeature.KNOWN_ORDER,
@@ -103,13 +105,11 @@ public final class LinkedDequeTests extends TestCase {
 
     protected abstract Queue<LinkedValue> create(LinkedValue[] elements);
 
-    @Override
-    public LinkedValue[] createArray(int length) {
+    @Override public LinkedValue[] createArray(int length) {
       return new LinkedValue[length];
     }
-
-    @Override
-    public List<LinkedValue> order(List<LinkedValue> insertionOrder) {
+    @CanIgnoreReturnValue
+    @Override public List<LinkedValue> order(List<LinkedValue> insertionOrder) {
       return insertionOrder;
     }
   }

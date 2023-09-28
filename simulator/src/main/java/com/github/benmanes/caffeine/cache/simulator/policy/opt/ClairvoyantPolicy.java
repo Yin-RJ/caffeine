@@ -23,7 +23,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.AccessEvent;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.ints.IntArrayFIFOQueue;
@@ -35,7 +34,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 
 /**
- * Bélády's optimal page replacement policy. The upper bound of the hit rate is estimated
+ * {@literal Bélády's} optimal page replacement policy. The upper bound of the hit rate is estimated
  * by evicting from the cache the item that will next be used farthest into the future.
  *
  * @author ben.manes@gmail.com (Ben Manes)
@@ -54,7 +53,7 @@ public final class ClairvoyantPolicy implements Policy {
 
   public ClairvoyantPolicy(Config config) {
     BasicSettings settings = new BasicSettings(config);
-    maximumSize = Ints.checkedCast(settings.maximumSize());
+    maximumSize = Math.toIntExact(settings.maximumSize());
     accessTimes = new Long2ObjectOpenHashMap<>();
     policyStats = new PolicyStats(name());
     infiniteTimestamp = Integer.MAX_VALUE;
@@ -116,7 +115,7 @@ public final class ClairvoyantPolicy implements Policy {
     }
   }
 
-  /** Removes the entry whose next access is farthest away into the future. */
+  /** Removes the entry whose next access is the farthest away into the future. */
   private void evict() {
     data.remove(data.lastInt());
     policyStats.recordEviction();

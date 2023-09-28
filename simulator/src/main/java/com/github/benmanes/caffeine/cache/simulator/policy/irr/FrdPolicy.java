@@ -22,9 +22,9 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 /**
@@ -48,7 +48,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  */
 @PolicySpec(name = "irr.Frd")
 public final class FrdPolicy implements KeyOnlyPolicy {
-  final Long2ObjectOpenHashMap<Node> data;
+  final Long2ObjectMap<Node> data;
   final PolicyStats policyStats;
   final Node headFilter;
   final Node headMain;
@@ -61,7 +61,7 @@ public final class FrdPolicy implements KeyOnlyPolicy {
 
   public FrdPolicy(Config config) {
     FrdSettings settings = new FrdSettings(config);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.maximumMainResidentSize = (int) (maximumSize * settings.percentMain());
     this.maximumFilterSize = maximumSize - maximumMainResidentSize;
     this.policyStats = new PolicyStats(name());
@@ -222,8 +222,8 @@ public final class FrdPolicy implements KeyOnlyPolicy {
   }
 
   enum StackType {
-    FILTER, // holds all of the resident filter blocks
-    MAIN,   // holds all of the resident and non-resident blocks
+    FILTER, // holds the resident filter blocks
+    MAIN,   // holds the resident and non-resident blocks
   }
 
   final class Node {
@@ -250,8 +250,6 @@ public final class FrdPolicy implements KeyOnlyPolicy {
     }
 
     public boolean isInStack(StackType stackType) {
-      checkState(key != Long.MIN_VALUE);
-
       if (stackType == StackType.FILTER) {
         return isInFilter;
       } else if (stackType == StackType.MAIN) {

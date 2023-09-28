@@ -16,7 +16,7 @@
 package com.github.benmanes.caffeine.cache.simulator.policy.linked;
 
 import static com.google.common.base.Preconditions.checkState;
-import static java.util.stream.Collectors.toSet;
+import static java.util.stream.Collectors.toUnmodifiableSet;
 
 import java.util.Arrays;
 import java.util.Set;
@@ -29,7 +29,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -60,7 +59,7 @@ public final class S4LruPolicy implements KeyOnlyPolicy {
   public S4LruPolicy(Admission admission, Config config) {
     S4LruSettings settings = new S4LruSettings(config);
     this.policyStats = new PolicyStats(admission.format(name()));
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.admittor = admission.from(config, policyStats);
     this.data = new Long2ObjectOpenHashMap<>();
     this.levels = settings.levels();
@@ -75,7 +74,7 @@ public final class S4LruPolicy implements KeyOnlyPolicy {
     BasicSettings settings = new BasicSettings(config);
     return settings.admission().stream().map(admission ->
       new S4LruPolicy(admission, config)
-    ).collect(toSet());
+    ).collect(toUnmodifiableSet());
   }
 
   @Override
@@ -196,8 +195,6 @@ public final class S4LruPolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
-
       prev.next = next;
       next.prev = prev;
       prev = next = null;

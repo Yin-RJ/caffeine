@@ -22,7 +22,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -31,7 +30,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 /**
  * Clock with Adaptive Replacement policy. This algorithm differs from ARC by replacing the LRU
  * policy with the Clock (Second Chance) policy. This allows cache hits to be performed concurrently
- * at the cost of a global lock on a miss and a worst case O(2n) eviction as the queues are scanned.
+ * at the cost of a global lock on a miss and has the worst case time of O(2n) on eviction due to
+ * queues being scanned.
  * <p>
  * This implementation is based on the pseudo code provided by the authors in their paper <a href=
  * "https://www.usenix.org/legacy/publications/library/proceedings/fast04/tech/full_papers/bansal/bansal.pdf">
@@ -60,7 +60,7 @@ public final class CarPolicy implements KeyOnlyPolicy {
 
   public CarPolicy(Config config) {
     BasicSettings settings = new BasicSettings(config);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.policyStats = new PolicyStats(name());
     this.data = new Long2ObjectOpenHashMap<>();
     this.headT1 = new Node();
@@ -280,7 +280,6 @@ public final class CarPolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
       prev.next = next;
       next.prev = prev;
       prev = next = null;

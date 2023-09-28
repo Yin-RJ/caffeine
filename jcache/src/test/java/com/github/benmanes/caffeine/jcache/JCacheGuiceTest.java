@@ -17,8 +17,6 @@ package com.github.benmanes.caffeine.jcache;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import java.util.Map;
-
 import javax.cache.Cache;
 import javax.cache.CacheManager;
 import javax.cache.Caching;
@@ -37,13 +35,15 @@ import org.testng.annotations.Test;
 import com.github.benmanes.caffeine.jcache.configuration.FactoryCreator;
 import com.github.benmanes.caffeine.jcache.configuration.TypesafeConfigurator;
 import com.github.benmanes.caffeine.jcache.spi.CaffeineCachingProvider;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
-import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.util.Modules;
+
+import jakarta.inject.Inject;
 
 /**
  * @author ben.manes@gmail.com (Ben Manes)
@@ -101,7 +101,7 @@ public final class JCacheGuiceTest {
     }
 
     @Override
-    public Map<Integer, Integer> loadAll(Iterable<? extends Integer> keys) {
+    public ImmutableMap<Integer, Integer> loadAll(Iterable<? extends Integer> keys) {
       return Maps.toMap(ImmutableSet.copyOf(keys), this::load);
     }
   }
@@ -139,6 +139,7 @@ public final class JCacheGuiceTest {
       var provider = Caching.getCachingProvider(CaffeineCachingProvider.class.getName());
       var cacheManager = provider.getCacheManager(
           provider.getDefaultURI(), provider.getDefaultClassLoader());
+      cacheManager.getCacheNames().forEach(cacheManager::destroyCache);
       bind(CacheResolverFactory.class).toInstance(new DefaultCacheResolverFactory(cacheManager));
       bind(CacheManager.class).toInstance(cacheManager);
     }

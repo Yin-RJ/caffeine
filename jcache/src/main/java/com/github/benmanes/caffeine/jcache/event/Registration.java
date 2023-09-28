@@ -18,6 +18,7 @@ package com.github.benmanes.caffeine.jcache.event;
 import static java.util.Objects.requireNonNull;
 
 import javax.cache.configuration.CacheEntryListenerConfiguration;
+import javax.cache.configuration.MutableCacheEntryListenerConfiguration;
 import javax.cache.event.CacheEntryEventFilter;
 import javax.cache.event.CacheEntryListener;
 
@@ -33,22 +34,22 @@ public final class Registration<K, V> {
 
   public Registration(CacheEntryListenerConfiguration<K, V> configuration,
       CacheEntryEventFilter<K, V> filter, EventTypeAwareListener<K, V> listener) {
-    this.configuration = requireNonNull(configuration);
+    this.configuration = new MutableCacheEntryListenerConfiguration<>(configuration);
     this.listener = requireNonNull(listener);
     this.filter = requireNonNull(filter);
   }
 
-  /** @return the configuration */
+  /** Returns the configuration. */
   public CacheEntryListenerConfiguration<K, V> getConfiguration() {
     return configuration;
   }
 
-  /** @return the registered listener */
+  /** Returns the registered listener. */
   public EventTypeAwareListener<K, V> getCacheEntryListener() {
     return listener;
   }
 
-  /** @return the registered filter */
+  /** Returns the registered filter. */
   public CacheEntryEventFilter<K, V> getCacheEntryFilter() {
     return filter;
   }
@@ -56,5 +57,21 @@ public final class Registration<K, V> {
   /** See {@link CacheEntryListenerConfiguration#isSynchronous()}. */
   public boolean isSynchronous() {
     return configuration.isSynchronous();
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (o == this) {
+      return true;
+    } else if (!(o instanceof Registration)) {
+      return false;
+    }
+    var other = (Registration<?, ?>) o;
+    return configuration.equals(other.configuration);
+  }
+
+  @Override
+  public int hashCode() {
+    return configuration.hashCode();
   }
 }

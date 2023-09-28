@@ -57,6 +57,8 @@ public final class OSGiTest {
         mavenBundle("javax.cache", "cache-api", System.getProperty("jcache.osgi.version")),
         mavenBundle().groupId("org.apache.felix").artifactId("org.apache.felix.scr")
             .version(System.getProperty("felixScr.version")),
+        mavenBundle().groupId("org.osgi").artifactId("org.osgi.service.component")
+            .version(System.getProperty("osgiService.component")),
         mavenBundle().groupId("org.osgi").artifactId("org.osgi.util.function")
             .version(System.getProperty("osgiUtil.function")),
         mavenBundle().groupId("org.osgi").artifactId("org.osgi.util.promise")
@@ -69,7 +71,7 @@ public final class OSGiTest {
         "com.github.benmanes.caffeine.jcache.spi.CaffeineCachingProvider",
         getClass().getClassLoader());
     var cache = cachingProvider.getCacheManager()
-        .getCache("test-cache-2", String.class, Integer.class);
+        .getCache("osgi-cache", String.class, Integer.class);
     assertNull(cache.get("a"));
   }
 

@@ -21,8 +21,8 @@ import static com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbin
 import static com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.HillClimber.QueueType.PROTECTED;
 import static com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.HillClimber.QueueType.WINDOW;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.Sets.toImmutableEnumSet;
 import static java.util.Locale.US;
-import static java.util.stream.Collectors.toSet;
 
 import java.util.HashSet;
 import java.util.List;
@@ -40,20 +40,23 @@ import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.HillClimber.Adaptation;
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.HillClimber.QueueType;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
+import com.google.common.collect.ImmutableSet;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 /**
- * The Window TinyLfu algorithm where the size of the admission window is adjusted using the a hill
+ * The Window TinyLfu algorithm where the size of the admission window is adjusted using a hill
  * climbing algorithm.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @PolicySpec(name = "sketch.HillClimberWindowTinyLfu")
 public final class HillClimberWindowTinyLfuPolicy implements KeyOnlyPolicy {
+  private static final boolean debug = false;
+  private static final boolean trace = false;
+
   private final double initialPercentMain;
   private final Long2ObjectMap<Node> data;
   private final PolicyStats policyStats;
@@ -71,12 +74,9 @@ public final class HillClimberWindowTinyLfuPolicy implements KeyOnlyPolicy {
   private double windowSize;
   private double protectedSize;
 
-  static final boolean debug = false;
-  static final boolean trace = false;
-
   public HillClimberWindowTinyLfuPolicy(HillClimberType strategy, double percentMain,
       HillClimberWindowTinyLfuSettings settings) {
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     int maxMain = (int) (maximumSize * percentMain);
     this.maxProtected = (int) (maxMain * settings.percentMainProtected());
     this.maxWindow = maximumSize - maxMain;
@@ -175,7 +175,7 @@ public final class HillClimberWindowTinyLfuPolicy implements KeyOnlyPolicy {
     }
   }
 
-  /** Moves the entry to the MRU position, if it falls outside of the fast-path threshold. */
+  /** Moves the entry to the MRU position if it falls outside of the fast-path threshold. */
   private void onProtectedHit(Node node) {
     node.moveToTail(headProtected);
   }
@@ -377,11 +377,11 @@ public final class HillClimberWindowTinyLfuPolicy implements KeyOnlyPolicy {
     public double percentMainProtected() {
       return config().getDouble("hill-climber-window-tiny-lfu.percent-main-protected");
     }
-    public Set<HillClimberType> strategy() {
+    public ImmutableSet<HillClimberType> strategy() {
       return config().getStringList("hill-climber-window-tiny-lfu.strategy").stream()
           .map(strategy -> strategy.replace('-', '_').toUpperCase(US))
           .map(HillClimberType::valueOf)
-          .collect(toSet());
+          .collect(toImmutableEnumSet());
     }
   }
 }

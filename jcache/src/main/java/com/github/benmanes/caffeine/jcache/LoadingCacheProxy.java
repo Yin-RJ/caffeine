@@ -15,13 +15,15 @@
  */
 package com.github.benmanes.caffeine.jcache;
 
+import static java.util.stream.Collectors.toUnmodifiableList;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.stream.Collectors;
 
 import javax.cache.Cache;
 import javax.cache.CacheException;
@@ -45,7 +47,7 @@ import com.github.benmanes.caffeine.jcache.management.JCacheStatisticsMXBean;
  */
 @SuppressWarnings("OvershadowingSubclassFields")
 public final class LoadingCacheProxy<K, V> extends CacheProxy<K, V> {
-  final LoadingCache<K, Expirable<V>> cache;
+  private final LoadingCache<K, Expirable<V>> cache;
 
   @SuppressWarnings("PMD.ExcessiveParameterList")
   public LoadingCacheProxy(String name, Executor executor, CacheManager cacheManager,
@@ -105,7 +107,7 @@ public final class LoadingCacheProxy<K, V> extends CacheProxy<K, V> {
 
     V value = null;
     if (expirable != null) {
-      setAccessExpirationTime(key, expirable, millis);
+      setAccessExpireTime(key, expirable, millis);
       value = copyValue(expirable);
     }
     if (statsEnabled) {
@@ -131,7 +133,7 @@ public final class LoadingCacheProxy<K, V> extends CacheProxy<K, V> {
       if (entries.size() != keys.size()) {
         List<K> keysToLoad = keys.stream()
             .filter(key -> !entries.containsKey(key))
-            .collect(Collectors.<K>toList());
+            .collect(toUnmodifiableList());
         entries.putAll(cache.getAll(keysToLoad));
       }
 
@@ -150,7 +152,7 @@ public final class LoadingCacheProxy<K, V> extends CacheProxy<K, V> {
   }
 
   @Override
-  @SuppressWarnings("CatchingUnchecked")
+  @SuppressWarnings({"CheckReturnValue", "FutureReturnValueIgnored"})
   public void loadAll(Set<? extends K> keys, boolean replaceExistingValues,
       CompletionListener completionListener) {
     requireNotClosed();
@@ -159,24 +161,26 @@ public final class LoadingCacheProxy<K, V> extends CacheProxy<K, V> {
         ? NullCompletionListener.INSTANCE
         : completionListener;
 
-    executor.execute(() -> {
+    var future = CompletableFuture.runAsync(() -> {
       try {
         if (replaceExistingValues) {
-          int[] ignored = { 0 };
-          Map<K, V> loaded = cacheLoader.get().loadAll(keys);
+          @SuppressWarnings("NullAway")
+          Map<K, V> loaded = cacheLoader.orElseThrow().loadAll(keys);
           for (var entry : loaded.entrySet()) {
-            putNoCopyOrAwait(entry.getKey(), entry.getValue(),
-                /* publishToWriter */ false, ignored);
+            putNoCopyOrAwait(entry.getKey(), entry.getValue(), /* publishToWriter */ false);
           }
         } else {
           getAll(keys, /* updateAccessTime */ false);
         }
         listener.onCompletion();
-      } catch (Exception e) {
+      } catch (RuntimeException e) {
         listener.onException(e);
       } finally {
         dispatcher.ignoreSynchronous();
       }
-    });
+    }, executor);
+
+    inFlight.add(future);
+    future.whenComplete((r, e) -> inFlight.remove(future));
   }
 }

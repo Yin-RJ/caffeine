@@ -15,44 +15,86 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.policy;
 
-import static com.github.benmanes.caffeine.cache.simulator.Simulator.Message.ERROR;
-import static com.github.benmanes.caffeine.cache.simulator.Simulator.Message.FINISH;
 import static java.util.Objects.requireNonNull;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 
-import akka.actor.AbstractActor;
-import akka.dispatch.BoundedMessageQueueSemantics;
-import akka.dispatch.RequiresMessageQueue;
+import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
+import com.google.common.collect.ImmutableList;
 
 /**
  * An actor that proxies to the page replacement policy.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-public final class PolicyActor extends AbstractActor
-    implements RequiresMessageQueue<BoundedMessageQueueSemantics> {
+public final class PolicyActor {
+  private final CompletableFuture<Void> completed;
+  private final Semaphore semaphore;
   private final Policy policy;
+  private final Thread parent;
 
-  public PolicyActor(Policy policy) {
+  private CompletableFuture<Void> future;
+
+  /**
+   * Creates an actor that executes the policy actions asynchronously over a buffered channel.
+   *
+   * @param parent the supervisor to interrupt if the policy fails
+   * @param policy the cache policy being simulated
+   * @param settings the simulation settings
+   */
+  public PolicyActor(Thread parent, Policy policy, BasicSettings settings) {
+    this.semaphore = new Semaphore(settings.actor().mailboxSize());
+    this.future = CompletableFuture.completedFuture(null);
+    this.completed = new CompletableFuture<>();
     this.policy = requireNonNull(policy);
+    this.parent = requireNonNull(parent);
   }
 
-  @Override
-  public Receive createReceive() {
-    return receiveBuilder()
-        .matchEquals(FINISH, msg -> finish())
-        .matchUnchecked(List.class, () -> true, this::process)
-        .build();
+  /** Sends the access events for async processing and blocks until accepted into the mailbox. */
+  public void send(ImmutableList<AccessEvent> events) {
+    submit(new Execute(events));
   }
 
-  private void process(List<AccessEvent> events) {
+  /** Sends a shutdown signal after the pending messages are completed. */
+  public void finish() {
+    submit(new Finish());
+  }
+
+  /** Return the future that signals the policy's completion. */
+  public CompletableFuture<Void> completed() {
+    return completed;
+  }
+
+  /** Submits the command to the mailbox and blocks until accepted. */
+  private void submit(Command command) {
     try {
+      semaphore.acquire();
+      future = future.thenRunAsync(command);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(e);
+    }
+  }
+
+  /** Returns the cache efficiency statistics. */
+  public PolicyStats stats() {
+    return policy.stats();
+  }
+
+  /** A command to process the access events. */
+  private final class Execute extends Command {
+    final List<AccessEvent> events;
+
+    Execute(List<AccessEvent> events) {
+      this.events = requireNonNull(events);
+    }
+    @Override public void execute() {
       policy.stats().stopwatch().start();
       for (AccessEvent event : events) {
-        long priorHits = policy.stats().hitCount();
         long priorMisses = policy.stats().missCount();
-
+        long priorHits = policy.stats().hitCount();
         policy.record(event);
 
         if (policy.stats().hitCount() > priorHits) {
@@ -61,23 +103,33 @@ public final class PolicyActor extends AbstractActor
           policy.stats().recordMissPenalty(event.missPenalty());
         }
       }
-    } catch (RuntimeException e) {
-      sender().tell(ERROR, self());
-      context().system().stop(self());
-      context().system().log().error(e, "");
-    } finally {
       policy.stats().stopwatch().stop();
     }
   }
 
-  private void finish() {
-    try {
+  /** A command to shutdown the policy and finalize the statistics. */
+  private final class Finish extends Command {
+    @Override public void execute() {
       policy.finished();
-      sender().tell(policy.stats(), self());
-    } catch (RuntimeException e) {
-      sender().tell(ERROR, self());
-      context().system().stop(self());
-      context().system().log().error(e, "");
+      completed.complete(null);
     }
+  }
+
+  private abstract class Command implements Runnable {
+    @Override public final void run() {
+      var name = Thread.currentThread().getName();
+      Thread.currentThread().setName(policy.getClass().getSimpleName());
+      try {
+        execute();
+      } catch (Throwable t) {
+        completed.completeExceptionally(t);
+        parent.interrupt();
+        throw t;
+      } finally {
+        semaphore.release();
+        Thread.currentThread().setName(name);
+      }
+    }
+    protected abstract void execute();
   }
 }

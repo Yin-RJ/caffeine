@@ -19,6 +19,8 @@ import static com.github.benmanes.caffeine.cache.BoundedLocalCache.MAXIMUM_EXPIR
 import static java.util.Objects.requireNonNull;
 
 import java.io.Serializable;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -32,8 +34,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
+@SuppressWarnings("serial")
 final class Async {
   static final long ASYNC_EXPIRY = (Long.MAX_VALUE >> 1) + (Long.MAX_VALUE >> 2); // 220 years
+  static final Logger logger = System.getLogger(Async.class.getName());
 
   private Async() {}
 
@@ -82,7 +86,11 @@ final class Async {
       if (future != null) {
         future.thenAcceptAsync(value -> {
           if (value != null) {
-            delegate.onRemoval(key, value, cause);
+            try {
+              delegate.onRemoval(key, value, cause);
+            } catch (Throwable t) {
+              logger.log(Level.WARNING, "Exception thrown by removal listener", t);
+            }
           }
         }, executor);
       }
@@ -110,6 +118,7 @@ final class Async {
     @Override
     public void onRemoval(@Nullable K key,
         @Nullable CompletableFuture<V> future, RemovalCause cause) {
+      // Must have been completed and be non-null to be eligible for eviction
       V value = Async.getIfReady(future);
       if (value != null) {
         delegate.onRemoval(key, value, cause);
@@ -124,8 +133,8 @@ final class Async {
   /**
    * A weigher for asynchronous computations. When the value is being loaded this weigher returns
    * {@code 0} to indicate that the entry should not be evicted due to a size constraint. If the
-   * value is computed successfully the entry must be reinserted so that the weight is updated and
-   * the expiration timeouts reflect the value once present. This can be done safely using
+   * value is computed successfully then the entry must be reinserted so that the weight is updated
+   * and the expiration timeouts reflect the value once present. This can be done safely using
    * {@link Map#replace(Object, Object, Object)}.
    */
   static final class AsyncWeigher<K, V> implements Weigher<K, CompletableFuture<V>>, Serializable {
@@ -150,16 +159,16 @@ final class Async {
   /**
    * An expiry for asynchronous computations. When the value is being loaded this expiry returns
    * {@code ASYNC_EXPIRY} to indicate that the entry should not be evicted due to an expiry
-   * constraint. If the value is computed successfully the entry must be reinserted so that the
-   * expiration is updated and the expiration timeouts reflect the value once present. The value
-   * maximum range is reserved to coordinate the asynchronous life cycle.
+   * constraint. If the value is computed successfully then the entry must be reinserted so that the
+   * expiration is updated and the expiration timeouts reflect the value once present. The
+   * duration's maximum range is reserved to coordinate with the asynchronous life cycle.
    */
   static final class AsyncExpiry<K, V> implements Expiry<K, CompletableFuture<V>>, Serializable {
     private static final long serialVersionUID = 1L;
 
-    final Expiry<K, V> delegate;
+    final Expiry<? super K, ? super V> delegate;
 
-    AsyncExpiry(Expiry<K, V> delegate) {
+    AsyncExpiry(Expiry<? super K, ? super V> delegate) {
       this.delegate = requireNonNull(delegate);
     }
 

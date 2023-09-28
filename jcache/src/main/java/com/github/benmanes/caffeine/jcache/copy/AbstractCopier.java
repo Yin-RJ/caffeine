@@ -45,20 +45,15 @@ import java.util.regex.Pattern;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@SuppressWarnings({"JdkObsolete", "JavaUtilDate"})
+@SuppressWarnings({"JavaUtilDate", "JdkObsolete"})
 public abstract class AbstractCopier<A> implements Copier {
-  private static final Map<Class<?>, Function<Object, Object>> JAVA_DEEP_COPY;
-  private static final Set<Class<?>> JAVA_IMMUTABLE;
-
-  static {
-    JAVA_IMMUTABLE = Set.of(Boolean.class, Byte.class, Character.class, Double.class, Float.class,
-        Short.class, Integer.class, Long.class, BigInteger.class, BigDecimal.class, String.class,
-        Class.class, UUID.class, URL.class, URI.class, Pattern.class, Inet4Address.class,
-        Inet6Address.class, InetSocketAddress.class, LocalDate.class, LocalTime.class,
-        LocalDateTime.class, Instant.class, Duration.class);
-    JAVA_DEEP_COPY = Map.of(Date.class, o -> ((Date) o).clone(),
-        GregorianCalendar.class, o -> ((GregorianCalendar) o).clone());
-  }
+  private static final Map<Class<?>, Function<Object, Object>> JAVA_DEEP_COPY = Map.of(Date.class,
+      o -> ((Date) o).clone(), GregorianCalendar.class, o -> ((GregorianCalendar) o).clone());
+  private static final Set<Class<?>> JAVA_IMMUTABLE = Set.of(Boolean.class, Byte.class,
+      Character.class, Double.class, Float.class, Short.class, Integer.class, Long.class,
+      BigInteger.class, BigDecimal.class, String.class, Class.class, UUID.class, URL.class,
+      URI.class, Pattern.class, Inet4Address.class, Inet6Address.class, InetSocketAddress.class,
+      LocalDate.class, LocalTime.class, LocalDateTime.class, Instant.class, Duration.class);
 
   private final Set<Class<?>> immutableClasses;
   private final Map<Class<?>, Function<Object, Object>> deepCopyStrategies;
@@ -73,12 +68,12 @@ public abstract class AbstractCopier<A> implements Copier {
     this.deepCopyStrategies = requireNonNull(deepCopyStrategies);
   }
 
-  /** @return the set of Java native classes that are immutable */
+  /** Returns the set of Java native classes that are immutable. */
   public static Set<Class<?>> javaImmutableClasses() {
     return JAVA_IMMUTABLE;
   }
 
-  /** @return the set of Java native classes that are deeply copied. */
+  /** Returns the set of Java native classes that are deeply copied. */
   public static Map<Class<?>, Function<Object, Object>> javaDeepCopyStrategies() {
     return JAVA_DEEP_COPY;
   }
@@ -87,13 +82,20 @@ public abstract class AbstractCopier<A> implements Copier {
   public <T> T copy(T object, ClassLoader classLoader) {
     requireNonNull(object);
     requireNonNull(classLoader);
+
     if (isImmutable(object.getClass())) {
       return object;
-    } else if (canDeeplyCopy(object.getClass())) {
-      return deepCopy(object);
     } else if (isArrayOfImmutableTypes(object.getClass())) {
       return arrayCopy(object);
     }
+
+    var deeplyCopyStrategy = deepCopyStrategies.get(object.getClass());
+    if (deeplyCopyStrategy != null) {
+      @SuppressWarnings("unchecked")
+      T copy = (T) deeplyCopyStrategy.apply(object);
+      return copy;
+    }
+
     return roundtrip(object, classLoader);
   }
 
@@ -132,13 +134,6 @@ public abstract class AbstractCopier<A> implements Copier {
     @SuppressWarnings("unchecked")
     T copy = (T) Array.newInstance(object.getClass().getComponentType(), length);
     System.arraycopy(object, 0, copy, 0, length);
-    return copy;
-  }
-
-  /** @return a deep copy of the object. */
-  private <T> T deepCopy(T object) {
-    @SuppressWarnings({"unchecked", "NullAway"})
-    T copy = (T) deepCopyStrategies.get(object.getClass()).apply(object);
     return copy;
   }
 

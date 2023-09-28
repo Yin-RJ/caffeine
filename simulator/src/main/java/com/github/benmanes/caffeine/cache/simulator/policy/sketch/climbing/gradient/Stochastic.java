@@ -21,7 +21,6 @@ import java.util.List;
 
 import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.climbing.AbstractClimber;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 /**
@@ -53,7 +52,7 @@ public final class Stochastic extends AbstractClimber {
 
   public Stochastic(Config config) {
     StochasticSettings settings = new StochasticSettings(config);
-    int maximumSize = Ints.checkedCast(settings.maximumSize());
+    int maximumSize = Math.toIntExact(settings.maximumSize());
     sampleSize = (int) (settings.percentSample() * maximumSize);
     stepSize = (int) (settings.percentPivot() * maximumSize);
     acceleration = settings.acceleration();
@@ -61,6 +60,7 @@ public final class Stochastic extends AbstractClimber {
   }
 
   @Override
+  @SuppressWarnings("PMD.SwitchStmtsShouldHaveDefault")
   protected double adjust(double hitRate) {
     double currentMissRate = (1 - hitRate);
     double previousMissRate = (1 - previousHitRate);

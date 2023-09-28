@@ -20,6 +20,7 @@ import static java.util.Objects.requireNonNull;
 import java.lang.ref.WeakReference;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
@@ -28,12 +29,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.cache.Cache;
 import javax.cache.CacheException;
 import javax.cache.CacheManager;
+import javax.cache.configuration.CompleteConfiguration;
 import javax.cache.configuration.Configuration;
 import javax.cache.spi.CachingProvider;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
-
-import com.github.benmanes.caffeine.jcache.spi.CaffeineCachingProvider;
 
 /**
  * An implementation of JSR-107 {@link CacheManager} that manages Caffeine-based caches.
@@ -46,21 +46,22 @@ public final class CacheManagerImpl implements CacheManager {
   private final Map<String, CacheProxy<?, ?>> caches;
   private final CachingProvider cacheProvider;
   private final Properties properties;
+  private final Object lock;
   private final URI uri;
 
   private final boolean runsAsAnOsgiBundle;
 
   private volatile boolean closed;
 
-  public CacheManagerImpl(CachingProvider cacheProvider,
+  public CacheManagerImpl(CachingProvider cacheProvider, boolean runsAsAnOsgiBundle,
       URI uri, ClassLoader classLoader, Properties properties) {
-    this.runsAsAnOsgiBundle = (cacheProvider instanceof CaffeineCachingProvider)
-        && ((CaffeineCachingProvider) cacheProvider).isOsgiComponent();
     this.classLoaderReference = new WeakReference<>(requireNonNull(classLoader));
     this.cacheProvider = requireNonNull(cacheProvider);
+    this.runsAsAnOsgiBundle = runsAsAnOsgiBundle;
     this.properties = requireNonNull(properties);
     this.caches = new ConcurrentHashMap<>();
     this.uri = requireNonNull(uri);
+    this.lock = new Object();
   }
 
   @Override
@@ -98,13 +99,16 @@ public final class CacheManagerImpl implements CacheManager {
       CacheProxy<?, ?> cache = caches.compute(cacheName, (name, existing) -> {
         if ((existing != null) && !existing.isClosed()) {
           throw new CacheException("Cache " + cacheName + " already exists");
-        } else if (CacheFactory.isDefinedExternally(cacheName)) {
+        } else if (CacheFactory.isDefinedExternally(this, cacheName)) {
           throw new CacheException("Cache " + cacheName + " is configured externally");
         }
         return CacheFactory.createCache(this, cacheName, configuration);
       });
-      enableManagement(cache.getName(), cache.getConfiguration().isManagementEnabled());
-      enableStatistics(cache.getName(), cache.getConfiguration().isStatisticsEnabled());
+
+      @SuppressWarnings("unchecked")
+      var config = cache.getConfiguration(CompleteConfiguration.class);
+      enableManagement(cache.getName(), config.isManagementEnabled());
+      enableStatistics(cache.getName(), config.isStatisticsEnabled());
 
       @SuppressWarnings("unchecked")
       Cache<K, V> castedCache = (Cache<K, V>) cache;
@@ -130,7 +134,8 @@ public final class CacheManagerImpl implements CacheManager {
       requireNonNull(keyType);
       requireNonNull(valueType);
 
-      Configuration<?, ?> config = cache.getConfiguration();
+      @SuppressWarnings("unchecked")
+      var config = cache.getConfiguration(CompleteConfiguration.class);
       if (keyType != config.getKeyType()) {
         throw new ClassCastException("Incompatible cache key types specified, expected "
             + config.getKeyType() + " but " + keyType + " was specified");
@@ -158,8 +163,10 @@ public final class CacheManagerImpl implements CacheManager {
       CacheProxy<?, ?> cache = caches.computeIfAbsent(cacheName, name -> {
         CacheProxy<?, ?> created = CacheFactory.tryToCreateFromExternalSettings(this, name);
         if (created != null) {
-          created.enableManagement(created.getConfiguration().isManagementEnabled());
-          created.enableStatistics(created.getConfiguration().isStatisticsEnabled());
+          @SuppressWarnings("unchecked")
+          var config = created.getConfiguration(CompleteConfiguration.class);
+          created.enableManagement(config.isManagementEnabled());
+          created.enableStatistics(config.isStatisticsEnabled());
         }
         return created;
       });
@@ -173,7 +180,7 @@ public final class CacheManagerImpl implements CacheManager {
   }
 
   @Override
-  public Iterable<String> getCacheNames() {
+  public Collection<String> getCacheNames() {
     requireNotClosed();
     return Collections.unmodifiableCollection(new ArrayList<>(caches.keySet()));
   }
@@ -215,7 +222,7 @@ public final class CacheManagerImpl implements CacheManager {
     if (isClosed()) {
       return;
     }
-    synchronized (this) {
+    synchronized (lock) {
       if (!isClosed()) {
         cacheProvider.close(uri, classLoaderReference.get());
         for (Cache<?, ?> cache : caches.values()) {

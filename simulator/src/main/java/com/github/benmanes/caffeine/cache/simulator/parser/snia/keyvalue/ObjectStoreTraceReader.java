@@ -18,13 +18,13 @@ package com.github.benmanes.caffeine.cache.simulator.parser.snia.keyvalue;
 import static com.github.benmanes.caffeine.cache.simulator.policy.Policy.Characteristic.WEIGHTED;
 
 import java.math.BigInteger;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Stream;
 
 import com.github.benmanes.caffeine.cache.simulator.parser.TextTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.policy.AccessEvent;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.Characteristic;
-import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 
 /**
@@ -41,7 +41,7 @@ public final class ObjectStoreTraceReader extends TextTraceReader {
 
   @Override
   public Set<Characteristic> characteristics() {
-    return Sets.immutableEnumSet(WEIGHTED);
+    return Set.of(WEIGHTED);
   }
 
   @Override
@@ -50,16 +50,14 @@ public final class ObjectStoreTraceReader extends TextTraceReader {
         .map(line -> line.split(" "))
         .filter(array -> array[1].equals("REST.GET.OBJECT"))
         .map(array -> {
-          long key = new BigInteger(array[2], 16).longValue();
-          int weight;
-          if (array.length == 3) {
-            weight = Integer.parseInt(array[3]);
-          } else {
-            long start = Long.parseLong(array[4]);
-            long end = Long.parseLong(array[5]);
-            weight = Ints.saturatedCast(end - start);
+          long start = Long.parseLong(array[4]);
+          long end = Long.parseLong(array[5]);
+          int weight = Ints.saturatedCast(end - start);
+          if (weight <= 0) {
+            return null;
           }
+          long key = new BigInteger(array[2], 16).longValue();
           return AccessEvent.forKeyAndWeight(key, weight);
-        });
+        }).filter(Objects::nonNull);
   }
 }

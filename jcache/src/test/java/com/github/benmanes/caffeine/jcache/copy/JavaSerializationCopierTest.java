@@ -15,14 +15,16 @@
  */
 package com.github.benmanes.caffeine.jcache.copy;
 
+import static com.github.benmanes.caffeine.jcache.copy.AbstractCopier.javaDeepCopyStrategies;
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Locale.US;
+import static org.junit.Assert.assertThrows;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectStreamClass;
 import java.io.UncheckedIOException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -30,6 +32,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.function.Function;
 
 import javax.cache.CacheException;
@@ -44,40 +47,43 @@ import com.google.common.collect.ImmutableSet;
  */
 public final class JavaSerializationCopierTest {
 
-  @Test(dataProvider = "nullArgs", expectedExceptions = NullPointerException.class)
+  @Test(dataProvider = "nullArgs")
   public void constructor_null(Set<Class<?>> immutableClasses,
       Map<Class<?>, Function<Object, Object>> deepCopyStrategies) {
-    new JavaSerializationCopier(immutableClasses, deepCopyStrategies);
+    assertThrows(NullPointerException.class, () ->
+        new JavaSerializationCopier(immutableClasses, deepCopyStrategies));
   }
 
-  @Test(dataProvider = "copier", expectedExceptions = NullPointerException.class)
+  @Test(dataProvider = "copier")
   public void null_object(Copier copier) {
-    copy(copier, null);
+    assertThrows(NullPointerException.class, () -> copy(copier, null));
   }
 
-  @Test(dataProvider = "copier", expectedExceptions = NullPointerException.class)
+  @Test(dataProvider = "copier")
   public void null_classLoader(Copier copier) {
-    copier.copy(1, null);
+    assertThrows(NullPointerException.class, () -> copier.copy(1, null));
   }
 
-  @Test(dataProvider = "copier", expectedExceptions = UncheckedIOException.class)
+  @Test(dataProvider = "copier")
   public void serializable_fail(JavaSerializationCopier copier) {
-    copier.serialize(new Object());
+    assertThrows(UncheckedIOException.class, () -> copier.serialize(new Object()));
   }
 
   @Test
-  public void deserializable_resolveClass() throws Exception {
+  public void deserializable_resolveClass() {
     var copier = new JavaSerializationCopier();
-    copier.copy(ImmutableSet.of(), ClassLoader.getPlatformClassLoader());
+    var copy = copier.copy(ImmutableSet.of(), ClassLoader.getPlatformClassLoader());
+    assertThat(copy).isInstanceOf(ImmutableSet.class);
   }
 
-  @Test(dataProvider = "copier", expectedExceptions = CacheException.class)
+  @Test(dataProvider = "copier")
   public void deserializable_badData(JavaSerializationCopier copier) {
-    copier.deserialize(new byte[0], Thread.currentThread().getContextClassLoader());
+    assertThrows(CacheException.class, () ->
+        copier.deserialize(new byte[0], Thread.currentThread().getContextClassLoader()));
   }
 
-  @Test(expectedExceptions = CacheException.class)
-  public void deserializable_classNotFound() throws Exception {
+  @Test
+  public void deserializable_classNotFound() {
     var copier = new JavaSerializationCopier() {
       @Override protected ObjectInputStream newInputStream(
           InputStream in, ClassLoader classLoader) throws IOException {
@@ -89,7 +95,8 @@ public final class JavaSerializationCopierTest {
         };
       }
     };
-    copier.roundtrip(Instant.now(), Thread.currentThread().getContextClassLoader());
+    assertThrows(CacheException.class, () ->
+        copier.roundtrip(100, Thread.currentThread().getContextClassLoader()));
   }
 
   @Test(dataProvider = "copier")
@@ -104,17 +111,26 @@ public final class JavaSerializationCopierTest {
     assertThat(copy(new JavaSerializationCopier(), text)).isSameInstanceAs(text);
   }
 
+  @Test
+  public void canDeeplyCopy() {
+    var copier = new JavaSerializationCopier();
+    assertThat(copier.canDeeplyCopy(Object.class)).isFalse();
+    for (var clazz : javaDeepCopyStrategies().keySet()) {
+      assertThat(copier.canDeeplyCopy(clazz)).isTrue();
+    }
+  }
+
   @Test(dataProvider = "copier")
-  @SuppressWarnings({"JdkObsolete", "JavaUtilDate", "UndefinedEquals"})
+  @SuppressWarnings({"JavaUtilDate", "JdkObsolete", "UndefinedEquals"})
   public void deepCopy_date(Copier copier) {
     Date date = new Date();
     assertThat(copy(copier, date)).isEqualTo(date);
   }
 
   @Test(dataProvider = "copier")
-  @SuppressWarnings({"JdkObsolete", "JavaUtilDate"})
+  @SuppressWarnings({"JavaUtilDate", "JdkObsolete"})
   public void deepCopy_calendar(Copier copier) {
-    Calendar calendar = Calendar.getInstance();
+    Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"), US);
     calendar.setTime(new Date());
     assertThat(copy(copier, calendar)).isEqualTo(calendar);
   }

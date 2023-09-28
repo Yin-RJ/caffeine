@@ -1,5 +1,7 @@
 #!/bin/bash
 set -eux
 
-./gradlew pmdJavaPoet pmdMain -Dpmd
-./gradlew spotbugsJavaPoet spotbugsMain spotbugsJmh -Dspotbugs
+./gradlew \
+    forbiddenApis -DforbiddenApis \
+    pmdJavaPoet pmdMain pmdCodeGen pmdJmh -Dpmd \
+    spotbugsJavaPoet spotbugsMain spotbugsCodeGen spotbugsJmh -Dspotbugs

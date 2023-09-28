@@ -19,18 +19,20 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+
 /**
  * A semi-persistent mapping from keys to values. Values are automatically loaded by the cache,
- * and are stored in the cache until either evicted or manually invalidated.
+ * and stored in the cache until either evicted or manually invalidated.
  * <p>
- * Implementations of this interface are expected to be thread-safe, and can be safely accessed
+ * Implementations of this interface are expected to be thread-safe and can be safely accessed
  * by multiple concurrent threads.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  * @param <K> the type of keys maintained by this cache
  * @param <V> the type of mapped values
  */
-public interface LoadingCache<K extends Object, V extends Object> extends Cache<K, V> {
+public interface LoadingCache<K, V> extends Cache<K, V> {
 
   /**
    * Returns the value associated with the {@code key} in this cache, obtaining that value from
@@ -47,7 +49,7 @@ public interface LoadingCache<K extends Object, V extends Object> extends Cache<
    * computation should be short and simple, and must not attempt to update any other mappings of
    * this cache.
    *
-   * @param key key with which the specified value is to be associated
+   * @param key the key with which the specified value is to be associated
    * @return the current (existing or computed) value associated with the specified key, or null if
    *         the computed value is null
    * @throws NullPointerException if the specified key is null
@@ -66,10 +68,10 @@ public interface LoadingCache<K extends Object, V extends Object> extends Cache<
    * <p>
    * Caches loaded by a {@link CacheLoader} will issue a single request to
    * {@link CacheLoader#loadAll} for all keys which are not already present in the cache. All
-   * entries returned by {@link CacheLoader#loadAll} will be stored in the cache, over-writing any
+   * entries returned by {@link CacheLoader#loadAll} will be stored in the cache, overwriting any
    * previously cached values. If another call to {@link #get} tries to load the value for a key in
    * {@code keys}, implementations may either have that thread load the entry or simply wait for
-   * this thread to finish and returns the loaded value. In the case of overlapping non-blocking
+   * this thread to finish and return the loaded value. In the case of overlapping non-blocking
    * loads, the last load to complete will replace the existing entry. Note that multiple threads
    * can concurrently load values for distinct keys.
    * <p>
@@ -77,21 +79,20 @@ public interface LoadingCache<K extends Object, V extends Object> extends Cache<
    * ignored.
    *
    * @param keys the keys whose associated values are to be returned
-   * @return the unmodifiable mapping of keys to values for the specified keys in this cache
+   * @return an unmodifiable mapping of keys to values for the specified keys in this cache
    * @throws NullPointerException if the specified collection is null or contains a null element
    * @throws CompletionException if a checked exception was thrown while loading the value
    * @throws RuntimeException or Error if the {@link CacheLoader} does so, if
-   *         {@link CacheLoader#loadAll} returns {@code null}, returns a map containing null keys or
-   *         values, or fails to return an entry for each requested key. In all cases, the mapping
-   *         is left unestablished
+   *         {@link CacheLoader#loadAll} returns {@code null}, or returns a map containing null keys
+   *         or values. In all cases, the mapping is left unestablished.
    */
   Map<K, V> getAll(Iterable<? extends K> keys);
 
   /**
    * Loads a new value for the {@code key}, asynchronously. While the new value is loading the
    * previous value (if any) will continue to be returned by {@code get(key)} unless it is evicted.
-   * If the new value is loaded successfully it will replace the previous value in the cache; if an
-   * exception is thrown while refreshing the previous value will remain, <i>and the exception will
+   * If the new value is loaded successfully, it will replace the previous value in the cache; if an
+   * exception is thrown while refreshing, the previous value will remain, <i>and the exception will
    * be logged (using {@link System.Logger}) and swallowed</i>.
    * <p>
    * Caches loaded by a {@link CacheLoader} will call {@link CacheLoader#reload} if the cache
@@ -105,24 +106,26 @@ public interface LoadingCache<K extends Object, V extends Object> extends Cache<
    * @return the future that is loading the value
    * @throws NullPointerException if the specified key is null
    */
+  @CanIgnoreReturnValue
   CompletableFuture<V> refresh(K key);
 
   /**
    * Loads a new value for each {@code key}, asynchronously. While the new value is loading the
    * previous value (if any) will continue to be returned by {@code get(key)} unless it is evicted.
-   * If the new value is loaded successfully it will replace the previous value in the cache; if an
-   * exception is thrown while refreshing the previous value will remain, <i>and the exception will
+   * If the new value is loaded successfully, it will replace the previous value in the cache; if an
+   * exception is thrown while refreshing, the previous value will remain, <i>and the exception will
    * be logged (using {@link System.Logger}) and swallowed</i>. If another thread is currently
-   * loading the value for {@code key}, then does not perform an additional load.
+   * loading the value for {@code key}, then this method does not perform an additional load.
    * <p>
    * Caches loaded by a {@link CacheLoader} will call {@link CacheLoader#reload} if the cache
    * currently contains a value for the {@code key}, and {@link CacheLoader#load} otherwise. Loading
    * is asynchronous by delegating to the default executor.
    *
    * @param keys the keys whose associated values are to be returned
-   * @return the future containing an unmodifiable mapping of keys to values for the specified keys
+   * @return a future containing an unmodifiable mapping of keys to values for the specified keys
    *         that are loading the values
    * @throws NullPointerException if the specified collection is null or contains a null element
    */
+  @CanIgnoreReturnValue
   CompletableFuture<Map<K, V>> refreshAll(Iterable<? extends K> keys);
 }

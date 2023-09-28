@@ -22,7 +22,6 @@ import com.github.benmanes.caffeine.cache.simulator.parser.TextTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.address.AddressTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.policy.AccessEvent;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.Characteristic;
-import com.google.common.collect.ImmutableSet;
 
 /**
  * An extension to {@link AddressTraceReader} where the trace files were augmented to include hit
@@ -34,7 +33,7 @@ import com.google.common.collect.ImmutableSet;
  * <ul>
  *   <li>Access Type: A single character indicating whether the access is a load (<tt>l</tt>) or a
  *       store (<tt>s</tt>).
- *   <li>Address: A 32-bit integer (in unsigned hexidecimal format) specifying the memory address
+ *   <li>Address: A 32-bit integer (in unsigned hexadecimal format) specifying the memory address
  *       that is being accessed. For example, <tt>0xff32e100</tt> specifies that memory address
  *       <tt>4281524480</tt> is accessed.
  *   <li>Instructions since last memory access: Indicates the number of instructions of any type
@@ -58,7 +57,7 @@ public final class AddressPenaltiesTraceReader extends TextTraceReader {
 
   @Override
   public Set<Characteristic> characteristics() {
-    return ImmutableSet.of();
+    return Set.of();
   }
 
   @Override

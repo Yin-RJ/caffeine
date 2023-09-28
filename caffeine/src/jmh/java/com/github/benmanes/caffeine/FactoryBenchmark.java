@@ -15,6 +15,7 @@
  */
 package com.github.benmanes.caffeine;
 
+import java.lang.invoke.LambdaMetafactory;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -23,68 +24,85 @@ import java.lang.reflect.Constructor;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.infra.Blackhole;
 
 /**
+ * This benchmark can be run by optionally specifying the target jvm in the command.
+ * <p>
+ * <pre>{@code
+ *   JAVA_VERSION=20 ./gradlew jmh -PincludePattern=FactoryBenchmark --no-daemon
+ * }</pre>
+ *
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @State(Scope.Benchmark)
+@SuppressWarnings("PMD.MethodNamingConventions")
 public class FactoryBenchmark {
   private final ReflectionFactory reflectionFactory = new ReflectionFactory();
   private final MethodHandleFactory methodHandleFactory = new MethodHandleFactory();
 
-  @State(Scope.Thread)
-  public static class ThreadState {
-    int i;
+  @Benchmark
+  public void direct(Blackhole blackhole) {
+    blackhole.consume(new Alpha());
   }
 
   @Benchmark
-  public Alpha direct(ThreadState state) {
-    return new Alpha(state.i++);
+  public void methodHandle_invoke(Blackhole blackhole) {
+    blackhole.consume(methodHandleFactory.invoke());
   }
 
   @Benchmark
-  public Alpha methodHandle_invoke(ThreadState state) {
-    return methodHandleFactory.invoke(state.i++);
+  public void methodHandle_invokeExact(Blackhole blackhole) {
+    blackhole.consume(methodHandleFactory.invokeExact());
   }
 
   @Benchmark
-  public Alpha methodHandle_invokeExact(ThreadState state) {
-    return methodHandleFactory.invokeExact(state.i++);
+  public void methodHandle_lambda(Blackhole blackhole) {
+    blackhole.consume(methodHandleFactory.lambda());
   }
 
   @Benchmark
-  public Alpha reflection(ThreadState state) {
-    return reflectionFactory.newInstance(state.i++);
+  public void reflection(Blackhole blackhole) {
+    blackhole.consume(reflectionFactory.newInstance());
   }
 
   static final class MethodHandleFactory {
     private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
-    private static final MethodType METHOD_TYPE = MethodType.methodType(void.class, int.class);
+    private static final MethodType METHOD_TYPE = MethodType.methodType(void.class);
 
     private final MethodHandle methodHandle;
+    private final AlphaConstructor lambda;
 
     MethodHandleFactory() {
       try {
         methodHandle = LOOKUP.findConstructor(Alpha.class, METHOD_TYPE);
-      } catch (NoSuchMethodException | IllegalAccessException e) {
-        throw new RuntimeException(e);
-      }
-    }
-
-    Alpha invoke(int x) {
-      try {
-        return (Alpha) methodHandle.invoke(x);
+        lambda = (AlphaConstructor) LambdaMetafactory
+            .metafactory(LOOKUP, "construct", MethodType.methodType(AlphaConstructor.class),
+                methodHandle.type(), methodHandle, methodHandle.type())
+            .getTarget().invokeExact();
       } catch (Throwable e) {
         throw new RuntimeException(e);
       }
     }
 
-    Alpha invokeExact(int x) {
+    Alpha invoke() {
       try {
-        return (Alpha) methodHandle.invokeExact(x);
+        return (Alpha) methodHandle.invoke();
       } catch (Throwable e) {
         throw new RuntimeException(e);
       }
+    }
+
+    Alpha invokeExact() {
+      try {
+        return (Alpha) methodHandle.invokeExact();
+      } catch (Throwable e) {
+        throw new RuntimeException(e);
+      }
+    }
+
+    Alpha lambda() {
+      return lambda.construct();
     }
   }
 
@@ -93,15 +111,15 @@ public class FactoryBenchmark {
 
     ReflectionFactory() {
       try {
-        constructor = Alpha.class.getConstructor(int.class);
+        constructor = Alpha.class.getConstructor();
       } catch (NoSuchMethodException | SecurityException e) {
         throw new RuntimeException(e);
       }
     }
 
-    Alpha newInstance(int x) {
+    Alpha newInstance() {
       try {
-        return constructor.newInstance(x);
+        return constructor.newInstance();
       } catch (Throwable e) {
         throw new RuntimeException(e);
       }
@@ -109,11 +127,10 @@ public class FactoryBenchmark {
   }
 
   static final class Alpha {
-    @SuppressWarnings("unused")
-    private final int x;
+    public Alpha() {}
+  }
 
-    public Alpha(int x) {
-      this.x = x;
-    }
+  private interface AlphaConstructor {
+    Alpha construct();
   }
 }

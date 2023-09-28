@@ -40,17 +40,19 @@ import com.google.common.collect.ForwardingSet;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ExecutionError;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * A Caffeine-backed cache through a Guava facade.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
+@SuppressWarnings("serial")
 class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
-  static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 1L;
 
-  final com.github.benmanes.caffeine.cache.Cache<K, V> cache;
-  @Nullable transient ConcurrentMap<K, V> mapView;
+  private final com.github.benmanes.caffeine.cache.Cache<K, V> cache;
+  private transient @Nullable ConcurrentMap<K, V> mapView;
 
   CaffeinatedGuavaCache(com.github.benmanes.caffeine.cache.Cache<K, V> cache) {
     this.cache = requireNonNull(cache);
@@ -64,7 +66,7 @@ class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
   }
 
   @Override
-  @SuppressWarnings({"PMD.PreserveStackTrace", "PMD.ExceptionAsFlowControl", "NullAway"})
+  @SuppressWarnings({"NullAway", "PMD.ExceptionAsFlowControl", "PMD.PreserveStackTrace"})
   public V get(K key, Callable<? extends V> valueLoader) throws ExecutionException {
     requireNonNull(valueLoader);
     try {
@@ -106,7 +108,7 @@ class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
   }
 
   @Override
-  public void putAll(Map<? extends K,? extends V> m) {
+  public void putAll(Map<? extends K, ? extends V> m) {
     cache.putAll(m);
   }
 
@@ -152,14 +154,14 @@ class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
   }
 
   final class AsMapView extends ForwardingConcurrentMap<K, V> {
-    @Nullable EntrySetView entrySet;
-    @Nullable KeySetView keySet;
-    @Nullable ValuesView values;
+    @Nullable Set<Entry<K, V>> entrySet;
+    @Nullable Collection<V> values;
+    @Nullable Set<K> keySet;
 
-    @Override public boolean containsKey(Object key) {
+    @Override public boolean containsKey(@Nullable Object key) {
       return (key != null) && delegate().containsKey(key);
     }
-    @Override public boolean containsValue(Object value) {
+    @Override public boolean containsValue(@Nullable Object value) {
       return (value != null) && delegate().containsValue(value);
     }
     @Override public void replaceAll(BiFunction<? super K, ? super V, ? extends V> function) {
@@ -210,7 +212,7 @@ class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
     @Override public boolean removeIf(Predicate<? super V> filter) {
       return delegate().removeIf(filter);
     }
-    @Override public boolean remove(Object o) {
+    @Override public boolean remove(@Nullable Object o) {
       return (o != null) && delegate().remove(o);
     }
     @Override protected Collection<V> delegate() {
@@ -238,6 +240,11 @@ class CaffeinatedGuavaCache<K, V> implements Cache<K, V>, Serializable {
 
     CacheLoaderException(Exception e) {
       super(e);
+    }
+    @CanIgnoreReturnValue
+    @SuppressWarnings({"lgtm [java/non-sync-override]", "UnsynchronizedOverridesSynchronized"})
+    @Override public Throwable fillInStackTrace() {
+      return this;
     }
   }
 }

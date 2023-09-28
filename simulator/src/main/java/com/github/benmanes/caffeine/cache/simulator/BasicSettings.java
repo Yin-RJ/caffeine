@@ -16,9 +16,10 @@
 package com.github.benmanes.caffeine.cache.simulator;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static com.google.common.collect.Sets.toImmutableEnumSet;
 import static java.util.Locale.US;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.toSet;
 
 import java.util.List;
 import java.util.Set;
@@ -43,6 +44,10 @@ public class BasicSettings {
     this.config = requireNonNull(config);
   }
 
+  public ActorSettings actor() {
+    return new ActorSettings();
+  }
+
   public ReportSettings report() {
     return new ReportSettings();
   }
@@ -51,21 +56,17 @@ public class BasicSettings {
     return config().getInt("random-seed");
   }
 
-  public int batchSize() {
-    return config().getInt("batch-size");
-  }
-
   public Set<String> policies() {
     return config().getStringList("policies").stream()
-        .map(String::toLowerCase)
-        .collect(toSet());
+        .map(policy -> policy.toLowerCase(US))
+        .collect(toImmutableSet());
   }
 
   public Set<Admission> admission() {
     return config().getStringList("admission").stream()
-        .map(String::toUpperCase)
+        .map(policy -> policy.toUpperCase(US))
         .map(Admission::valueOf)
-        .collect(toSet());
+        .collect(toImmutableEnumSet());
   }
 
   public MembershipSettings membership() {
@@ -87,6 +88,15 @@ public class BasicSettings {
   /** Returns the config resolved at the simulator's path. */
   public Config config() {
     return config;
+  }
+
+  public final class ActorSettings {
+    public int mailboxSize() {
+      return config().getInt("actor.mailbox-size");
+    }
+    public int batchSize() {
+      return config().getInt("actor.batch-size");
+    }
   }
 
   public final class ReportSettings {
@@ -213,6 +223,9 @@ public class BasicSettings {
     public CounterSettings counter() {
       return new CounterSettings();
     }
+    public RepeatSettings repeating() {
+      return new RepeatSettings();
+    }
     public UniformSettings uniform() {
       return new UniformSettings();
     }
@@ -229,6 +242,11 @@ public class BasicSettings {
     public final class CounterSettings {
       public int start() {
         return config().getInt("synthetic.counter.start");
+      }
+    }
+    public final class RepeatSettings {
+      public int items() {
+        return config().getInt("synthetic.repeating.items");
       }
     }
     public final class UniformSettings {

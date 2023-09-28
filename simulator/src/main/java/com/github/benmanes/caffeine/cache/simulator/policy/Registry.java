@@ -17,8 +17,8 @@ package com.github.benmanes.caffeine.cache.simulator.policy;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Locale.US;
-import static java.util.stream.Collectors.toSet;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.util.HashMap;
@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-import java.util.stream.Stream;
 
 import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.Characteristic;
@@ -54,10 +53,11 @@ import com.github.benmanes.caffeine.cache.simulator.policy.opt.ClairvoyantPolicy
 import com.github.benmanes.caffeine.cache.simulator.policy.opt.UnboundedPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.Cache2kPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.CaffeinePolicy;
+import com.github.benmanes.caffeine.cache.simulator.policy.product.CoherencePolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.Ehcache3Policy;
-import com.github.benmanes.caffeine.cache.simulator.policy.product.ElasticSearchPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.ExpiringMapPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.GuavaPolicy;
+import com.github.benmanes.caffeine.cache.simulator.policy.product.HazelcastPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.OhcPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.product.TCachePolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.sampled.SampledPolicy;
@@ -72,6 +72,7 @@ import com.github.benmanes.caffeine.cache.simulator.policy.sketch.segment.S4Wind
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.tinycache.TinyCachePolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.tinycache.TinyCacheWithGhostCachePolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.sketch.tinycache.WindowTinyCachePolicy;
+import com.github.benmanes.caffeine.cache.simulator.policy.two_queue.QdlpPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.two_queue.TuQueuePolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.two_queue.TwoQueuePolicy;
 import com.google.auto.value.AutoValue;
@@ -99,19 +100,12 @@ public final class Registry {
    * Returns all of the policies that have been configured for simulation and that meet a minimal
    * set of supported characteristics.
    */
-  public Set<Policy> policies() {
+  public ImmutableSet<Policy> policies() {
     return settings.policies().stream()
         .map(name -> checkNotNull(factories.get(name.toLowerCase(US)), "%s not found", name))
         .filter(factory -> factory.characteristics().containsAll(characteristics))
         .flatMap(factory -> factory.creator().apply(settings.config()).stream())
-        .collect(toSet());
-  }
-
-  /** Returns all of the policy variations that have been configured. */
-  public Set<Policy> policy(String name) {
-    var factory = factories.get(name.toLowerCase(US));
-    checkNotNull(factory, "%s not found", name);
-    return factory.creator().apply(settings.config());
+        .collect(toImmutableSet());
   }
 
   private void buildRegistry() {
@@ -157,27 +151,28 @@ public final class Registry {
   }
 
   private void registerLinked() {
-    Stream.of(LinkedPolicy.EvictionPolicy.values()).forEach(priority -> {
-      registerMany(priority.label(), LinkedPolicy.class,
-          config -> LinkedPolicy.policies(config, characteristics, priority));
-    });
-    Stream.of(FrequentlyUsedPolicy.EvictionPolicy.values()).forEach(priority -> {
-      registerMany(priority.label(), FrequentlyUsedPolicy.class,
-          config -> FrequentlyUsedPolicy.policies(config, priority));
-    });
+    for (var policy : LinkedPolicy.EvictionPolicy.values()) {
+      registerMany(policy.label(), LinkedPolicy.class,
+          config -> LinkedPolicy.policies(config, characteristics, policy));
+    }
+    for (var policy : FrequentlyUsedPolicy.EvictionPolicy.values()) {
+      registerMany(policy.label(), FrequentlyUsedPolicy.class,
+          config -> FrequentlyUsedPolicy.policies(config, policy));
+    }
     registerMany(S4LruPolicy.class, S4LruPolicy::policies);
     register(MultiQueuePolicy.class, MultiQueuePolicy::new);
     registerMany(SegmentedLruPolicy.class, SegmentedLruPolicy::policies);
   }
 
   private void registerSampled() {
-    Stream.of(SampledPolicy.EvictionPolicy.values()).forEach(priority -> {
-      registerMany(priority.label(), SampledPolicy.class,
-          config -> SampledPolicy.policies(config, priority));
-    });
+    for (var policy : SampledPolicy.EvictionPolicy.values()) {
+      registerMany(policy.label(), SampledPolicy.class,
+          config -> SampledPolicy.policies(config, policy));
+    }
   }
 
   private void registerTwoQueue() {
+    register(QdlpPolicy.class, QdlpPolicy::new);
     register(TuQueuePolicy.class, TuQueuePolicy::new);
     register(TwoQueuePolicy.class, TwoQueuePolicy::new);
   }
@@ -227,17 +222,18 @@ public final class Registry {
 
   private void registerProduct() {
     register(GuavaPolicy.class, GuavaPolicy::new);
-    register(TCachePolicy.class, TCachePolicy::new);
     register(Cache2kPolicy.class, Cache2kPolicy::new);
     registerMany(OhcPolicy.class, OhcPolicy::policies);
     register(CaffeinePolicy.class, CaffeinePolicy::new);
     register(Ehcache3Policy.class, Ehcache3Policy::new);
-    register(ExpiringMapPolicy.class, ExpiringMapPolicy::new);
-    register(ElasticSearchPolicy.class, ElasticSearchPolicy::new);
+    registerMany(TCachePolicy.class, TCachePolicy::policies);
+    registerMany(CoherencePolicy.class, CoherencePolicy::policies);
+    registerMany(HazelcastPolicy.class, HazelcastPolicy::policies);
+    registerMany(ExpiringMapPolicy.class, ExpiringMapPolicy::policies);
   }
 
   @AutoValue
-  static abstract class Factory {
+  abstract static class Factory {
     abstract Class<? extends Policy> policyClass();
     abstract Function<Config, Set<Policy>> creator();
 

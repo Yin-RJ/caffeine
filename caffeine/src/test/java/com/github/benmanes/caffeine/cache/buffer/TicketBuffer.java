@@ -17,17 +17,14 @@ package com.github.benmanes.caffeine.cache.buffer;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
-
-import com.github.benmanes.caffeine.cache.ReadBuffer;
 
 /**
  * A bounded buffer that attempts to record once. This design has the benefit of retaining a
  * strict sequence and backing off on contention or when full. It uses a PTL scheme where the empty
  * slot is the next write counter value.
  * <p>
- * The negatives of this algorithm is that it uses a boxed instance of the write index to
- * track if the slot is free. This allows the buffer to be non-blocking, whereas PTL is blocking.
+ * The negatives of this algorithm is that it uses a boxed instance of the write index to track if
+ * the slot is free. This allows the buffer to be non-blocking, whereas PTL is blocking.
  *
  * https://blogs.oracle.com/dave/entry/ptlqueue_a_scalable_bounded_capacity
  *
@@ -39,7 +36,7 @@ final class TicketBuffer<E> extends ReadBuffer<E> {
 
   long readCounter;
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
+  @SuppressWarnings({"rawtypes", "unchecked"})
   TicketBuffer() {
     writeCounter = new AtomicLong();
     buffer = new AtomicReference[BUFFER_SIZE];

@@ -16,6 +16,7 @@
 package com.github.benmanes.caffeine.cache.testing;
 
 import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 import java.lang.annotation.Retention;
@@ -27,5 +28,5 @@ import java.lang.annotation.Target;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@Target(METHOD) @Retention(RUNTIME)
+@Target({METHOD, TYPE}) @Retention(RUNTIME)
 public @interface CheckNoStats {}

@@ -297,13 +297,13 @@ public final class CacheStats {
    */
   public CacheStats minus(CacheStats other) {
     return CacheStats.of(
-        Math.max(0L, saturatedSubtract(hitCount, other.hitCount)),
-        Math.max(0L, saturatedSubtract(missCount, other.missCount)),
-        Math.max(0L, saturatedSubtract(loadSuccessCount, other.loadSuccessCount)),
-        Math.max(0L, saturatedSubtract(loadFailureCount, other.loadFailureCount)),
-        Math.max(0L, saturatedSubtract(totalLoadTime, other.totalLoadTime)),
-        Math.max(0L, saturatedSubtract(evictionCount, other.evictionCount)),
-        Math.max(0L, saturatedSubtract(evictionWeight, other.evictionWeight)));
+        Math.max(0L, hitCount - other.hitCount),
+        Math.max(0L, missCount - other.missCount),
+        Math.max(0L, loadSuccessCount - other.loadSuccessCount),
+        Math.max(0L, loadFailureCount - other.loadFailureCount),
+        Math.max(0L, totalLoadTime - other.totalLoadTime),
+        Math.max(0L, evictionCount - other.evictionCount),
+        Math.max(0L, evictionWeight - other.evictionWeight));
   }
 
   /**
@@ -329,29 +329,13 @@ public final class CacheStats {
   }
 
   /**
-   * Returns the difference of {@code a} and {@code b} unless it would overflow or underflow in
-   * which case {@code Long.MAX_VALUE} or {@code Long.MIN_VALUE} is returned, respectively.
-   */
-  @SuppressWarnings("ShortCircuitBoolean")
-  private static long saturatedSubtract(long a, long b) {
-    long naiveDifference = a - b;
-    if ((a ^ b) >= 0 | (a ^ naiveDifference) >= 0) {
-      // If a and b have the same signs or a has the same sign as the result then there was no
-      // overflow, return.
-      return naiveDifference;
-    }
-    // we did over/under flow
-    return Long.MAX_VALUE + ((naiveDifference >>> (Long.SIZE - 1)) ^ 1);
-  }
-
-  /**
    * Returns the sum of {@code a} and {@code b} unless it would overflow or underflow in which case
    * {@code Long.MAX_VALUE} or {@code Long.MIN_VALUE} is returned, respectively.
    */
   @SuppressWarnings("ShortCircuitBoolean")
   private static long saturatedAdd(long a, long b) {
     long naiveSum = a + b;
-    if ((a ^ b) < 0 | (a ^ naiveSum) >= 0) {
+    if (((a ^ b) < 0) | ((a ^ naiveSum) >= 0)) {
       // If a and b have different signs or a has the same sign as the result then there was no
       // overflow, return.
       return naiveSum;

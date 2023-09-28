@@ -23,7 +23,6 @@ import java.util.Iterator;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
-import com.github.benmanes.caffeine.cache.ReadBuffer;
 import com.github.benmanes.caffeine.testing.ConcurrentTestHarness;
 
 /**
@@ -46,22 +45,24 @@ public final class BufferTest {
   public void record(ReadBuffer<Boolean> buffer) {
     ConcurrentTestHarness.timeTasks(100, () -> {
       for (int i = 0; i < 1000; i++) {
-        buffer.offer(Boolean.TRUE);
+        int added = buffer.offer(Boolean.TRUE);
+        assertThat(added).isAnyOf(ReadBuffer.SUCCESS, ReadBuffer.FAILED, ReadBuffer.FULL);
         Thread.yield();
       }
     });
-    long recorded = buffer.recorded();
+    long recorded = buffer.writes();
     assertThat(recorded).isEqualTo(ReadBuffer.BUFFER_SIZE);
   }
 
   @Test(dataProvider = "buffers")
   public void drain(ReadBuffer<Boolean> buffer) {
     for (int i = 0; i < 2 * ReadBuffer.BUFFER_SIZE; i++) {
-      buffer.offer(Boolean.TRUE);
+      int added = buffer.offer(Boolean.TRUE);
+      assertThat(added).isAnyOf(ReadBuffer.SUCCESS, ReadBuffer.FULL);
     }
     buffer.drain();
-    long drained = buffer.drained();
-    long recorded = buffer.recorded();
+    long drained = buffer.reads();
+    long recorded = buffer.writes();
     assertThat(drained).isEqualTo(recorded);
   }
 
@@ -78,8 +79,8 @@ public final class BufferTest {
       }
     });
     buffer.drain();
-    long drained = buffer.drained();
-    long recorded = buffer.recorded();
+    long drained = buffer.reads();
+    long recorded = buffer.writes();
     assertThat(drained).isEqualTo(recorded);
   }
 }

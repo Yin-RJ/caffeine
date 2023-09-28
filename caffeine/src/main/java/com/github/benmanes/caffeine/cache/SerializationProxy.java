@@ -18,17 +18,18 @@ package com.github.benmanes.caffeine.cache;
 import static com.github.benmanes.caffeine.cache.Caffeine.UNSET_INT;
 
 import java.io.Serializable;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
- * Serializes the configuration of the cache, reconsitituting it as a {@link Cache},
- * {@link LoadingCache}, or {@link AsyncLoadingCache} using {@link Caffeine} upon
- * deserialization. The data held by the cache is not retained.
+ * Serializes the configuration of the cache, reconstituting it as a {@link Cache},
+ * {@link LoadingCache}, {@link AsyncCache}, or {@link AsyncLoadingCache} using {@link Caffeine}
+ * upon deserialization. The data held by the cache is not retained.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
+@SuppressWarnings("serial")
 final class SerializationProxy<K, V> implements Serializable {
   private static final long serialVersionUID = 1;
 
@@ -50,7 +51,6 @@ final class SerializationProxy<K, V> implements Serializable {
   @Nullable RemovalListener<?, ?> removalListener;
   @Nullable RemovalListener<?, ?> evictionListener;
 
-  @SuppressWarnings("PreferJavaTimeOverload")
   Caffeine<Object, Object> recreateCaffeine() {
     Caffeine<Object, Object> builder = Caffeine.newBuilder();
     if (ticker != null) {
@@ -72,13 +72,13 @@ final class SerializationProxy<K, V> implements Serializable {
       builder.expireAfter(expiry);
     }
     if (expiresAfterWriteNanos > 0) {
-      builder.expireAfterWrite(expiresAfterWriteNanos, TimeUnit.NANOSECONDS);
+      builder.expireAfterWrite(Duration.ofNanos(expiresAfterWriteNanos));
     }
     if (expiresAfterAccessNanos > 0) {
-      builder.expireAfterAccess(expiresAfterAccessNanos, TimeUnit.NANOSECONDS);
+      builder.expireAfterAccess(Duration.ofNanos(expiresAfterAccessNanos));
     }
     if (refreshAfterWriteNanos > 0) {
-      builder.refreshAfterWrite(refreshAfterWriteNanos, TimeUnit.NANOSECONDS);
+      builder.refreshAfterWrite(Duration.ofNanos(refreshAfterWriteNanos));
     }
     if (weakKeys) {
       builder.weakKeys();

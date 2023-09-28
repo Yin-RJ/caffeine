@@ -15,6 +15,8 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.report.table;
 
+import static java.util.Locale.US;
+
 import java.util.List;
 import java.util.Set;
 
@@ -37,24 +39,24 @@ public final class TableReporter extends TextReporter {
   }
 
   @Override
-  protected String assemble(List<PolicyStats> results) {
-    String[][] data = new String[results.size()][headers().size()];
+  protected String assemble(Set<String> headers, List<PolicyStats> results) {
+    String[][] data = new String[results.size()][headers.size()];
     for (int i = 0; i < results.size(); i++) {
       PolicyStats policyStats = results.get(i);
-      data[i] = headers().stream()
+      data[i] = headers.stream()
           .map(policyStats.metrics()::get)
           .map(metrics()::format)
           .toArray(String[]::new);
     }
-    return FlipTable.of(headers().toArray(new String[0]), data);
+    return FlipTable.of(headers.toArray(new String[0]), data);
   }
 
   @Override
-  protected Metrics newMetrics() {
+  protected Metrics metrics() {
     return Metrics.builder()
-        .percentFormatter(value -> String.format("%.2f %%", 100 * value))
-        .doubleFormatter(value -> String.format("%.2f", value))
-        .longFormatter(value -> String.format("%,d", value))
+        .percentFormatter(value -> String.format(US, "%.2f %%", 100 * value))
+        .doubleFormatter(value -> String.format(US, "%.2f", value))
+        .longFormatter(value -> String.format(US, "%,d", value))
         .build();
   }
 }

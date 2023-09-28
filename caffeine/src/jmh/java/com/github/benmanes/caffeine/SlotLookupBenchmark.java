@@ -48,6 +48,7 @@ import org.openjdk.jmh.infra.Blackhole;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @State(Scope.Benchmark)
+@SuppressWarnings("PMD.MethodNamingConventions")
 public class SlotLookupBenchmark {
   static final int SPARSE_SIZE = 2 << 14;
   static final int ARENA_SIZE = 2 << 6;
@@ -58,11 +59,12 @@ public class SlotLookupBenchmark {
   long[] array;
 
   @Setup
+  @SuppressWarnings("deprecation")
   public void setupThreadLocal() {
     threadLocal = ThreadLocal.withInitial(() -> {
       for (int i = 0; i < ARENA_SIZE; i++) {
         // Populates the internal hashmap to emulate other thread local usages
-        ThreadLocal.withInitial(Thread.currentThread()::getId);
+        ThreadLocal.withInitial(Thread.currentThread()::getId).get();
       }
       return selectSlot(ThreadLocalRandom.current().nextInt());
     });
@@ -87,6 +89,7 @@ public class SlotLookupBenchmark {
   @Benchmark
   public int threadIdHash() {
     // Emulates finding the arena slot by hashing the thread id
+    @SuppressWarnings("deprecation")
     long hash = mix64(Thread.currentThread().getId());
     return selectSlot(Long.hashCode(hash));
   }

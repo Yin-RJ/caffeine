@@ -47,6 +47,8 @@ import site.ycsb.generator.ScrambledZipfianGenerator;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 @State(Scope.Group)
+@SuppressWarnings({"CanonicalAnnotationSyntax", "LexicographicalAnnotationAttributeListing",
+    "PMD.JUnit4TestShouldUseAfterAnnotation", "PMD.MethodNamingConventions"})
 public class PutRemoveBenchmark {
   private static final int SIZE = (2 << 14);
   private static final int MASK = SIZE - 1;
@@ -58,7 +60,6 @@ public class PutRemoveBenchmark {
     "ConcurrentHashMap",
     "ConcurrentLinkedHashMap",
     "Guava",
-    "Cache2k",
     "Ehcache3",
   })
   CacheType cacheType;
@@ -83,7 +84,7 @@ public class PutRemoveBenchmark {
     }
     cache.clear();
 
-    // Populate with a realistic access distribution
+    // Populate using a realistic access distribution
     NumberGenerator generator = new ScrambledZipfianGenerator(ITEMS);
     for (int i = 0; i < SIZE; i++) {
       ints[i] = generator.nextValue().intValue();

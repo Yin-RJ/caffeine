@@ -15,12 +15,15 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static com.google.common.base.Preconditions.checkState;
+import static java.util.function.Function.identity;
+import static org.slf4j.event.Level.WARN;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BiConsumer;
-import java.util.function.Function;
 
 import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
@@ -36,9 +39,9 @@ import com.github.benmanes.caffeine.cache.testing.CacheSpec.Population;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.ReferenceType;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Stats;
 import com.github.benmanes.caffeine.cache.testing.CacheValidationListener;
+import com.github.benmanes.caffeine.cache.testing.CheckMaxLogLevel;
 import com.github.benmanes.caffeine.testing.Int;
 import com.github.benmanes.caffeine.testing.Threads;
-import com.google.common.base.Preconditions;
 import com.google.common.testing.SerializableTester;
 
 /**
@@ -46,28 +49,28 @@ import com.google.common.testing.SerializableTester;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
+@CheckMaxLogLevel(WARN)
 @Listeners(CacheValidationListener.class)
-@Test(groups = "slow", dataProviderClass = CacheProvider.class)
+@Test(groups = "isolated", dataProviderClass = CacheProvider.class)
 public final class MultiThreadedTest {
 
   @Test(dataProvider = "caches")
   @CacheSpec(maximumSize = Maximum.DISABLED, stats = Stats.DISABLED,
       population = Population.EMPTY, expireAfterAccess = Expire.DISABLED,
-      expireAfterWrite = Expire.DISABLED, removalListener = Listener.DEFAULT,
+      expireAfterWrite = Expire.DISABLED, removalListener = Listener.DISABLED,
       refreshAfterWrite = { Expire.DISABLED, Expire.ONE_MILLISECOND },
       keys = ReferenceType.STRONG, values = ReferenceType.STRONG,
-      evictionListener = Listener.DEFAULT)
+      evictionListener = Listener.DISABLED)
   public void concurrent_unbounded(LoadingCache<Int, Int> cache, CacheContext context) {
     Threads.runTest(cache, operations);
   }
 
   @Test(dataProvider = "caches")
-  @CacheSpec(maximumSize = Maximum.FULL, weigher = {CacheWeigher.DEFAULT, CacheWeigher.RANDOM},
-      stats = Stats.DISABLED, population = Population.EMPTY, expireAfterAccess = Expire.FOREVER,
-      removalListener = Listener.DEFAULT, expireAfterWrite = Expire.FOREVER,
+  @CacheSpec(maximumSize = Maximum.FULL, weigher = {CacheWeigher.DISABLED, CacheWeigher.RANDOM},
+      stats = Stats.DISABLED, population = Population.EMPTY, removalListener = Listener.DISABLED,
       refreshAfterWrite = { Expire.DISABLED, Expire.ONE_MILLISECOND },
       keys = ReferenceType.STRONG, values = ReferenceType.STRONG,
-      evictionListener = Listener.DEFAULT)
+      evictionListener = Listener.DISABLED)
   public void concurrent_bounded(LoadingCache<Int, Int> cache, CacheContext context) {
     Threads.runTest(cache, operations);
   }
@@ -75,29 +78,28 @@ public final class MultiThreadedTest {
   @Test(dataProvider = "caches")
   @CacheSpec(maximumSize = Maximum.DISABLED, stats = Stats.DISABLED,
       population = Population.EMPTY, expireAfterAccess = Expire.DISABLED,
-      expireAfterWrite = Expire.DISABLED, removalListener = Listener.DEFAULT,
+      expireAfterWrite = Expire.DISABLED, removalListener = Listener.DISABLED,
       refreshAfterWrite = { Expire.DISABLED, Expire.ONE_MILLISECOND },
       keys = ReferenceType.STRONG, values = ReferenceType.STRONG,
-      evictionListener = Listener.DEFAULT)
+      evictionListener = Listener.DISABLED)
   public void async_concurrent_unbounded(
       AsyncLoadingCache<Int, Int> cache, CacheContext context) {
     Threads.runTest(cache, asyncOperations);
   }
 
   @Test(dataProvider = "caches")
-  @CacheSpec(maximumSize = Maximum.FULL, weigher = {CacheWeigher.DEFAULT, CacheWeigher.RANDOM},
-      stats = Stats.DISABLED, population = Population.EMPTY, expireAfterAccess = Expire.FOREVER,
-      expireAfterWrite = Expire.FOREVER, removalListener = Listener.DEFAULT,
+  @CacheSpec(maximumSize = Maximum.FULL, weigher = {CacheWeigher.DISABLED, CacheWeigher.RANDOM},
+      stats = Stats.DISABLED, population = Population.EMPTY, removalListener = Listener.DISABLED,
       refreshAfterWrite = { Expire.DISABLED, Expire.ONE_MILLISECOND },
       keys = ReferenceType.STRONG, values = ReferenceType.STRONG,
-      evictionListener = Listener.DEFAULT)
+      evictionListener = Listener.DISABLED)
   public void async_concurrent_bounded(
       AsyncLoadingCache<Int, Int> cache, CacheContext context) {
     Threads.runTest(cache, asyncOperations);
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes", "ReturnValueIgnored",
-    "FutureReturnValueIgnored", "SizeGreaterThanOrEqualsZero", "SelfEquals"})
+  @SuppressWarnings({"CollectionToArray", "FutureReturnValueIgnored", "MethodReferenceUsage",
+    "rawtypes", "ReturnValueIgnored", "SelfEquals", "SizeGreaterThanOrEqualsZero"})
   List<BiConsumer<LoadingCache<Int, Int>, Int>> operations = List.of(
       // LoadingCache
       (cache, key) -> { cache.get(key); },
@@ -106,7 +108,7 @@ public final class MultiThreadedTest {
 
       // Cache
       (cache, key) -> { cache.getIfPresent(key); },
-      (cache, key) -> { cache.get(key, Function.identity()); },
+      (cache, key) -> { cache.get(key, identity()); },
       (cache, key) -> { cache.getAllPresent(List.of(key)); },
       (cache, key) -> { cache.put(key, key); },
       (cache, key) -> { cache.putAll(Map.of(key, key)); },
@@ -118,7 +120,7 @@ public final class MultiThreadedTest {
           cache.invalidateAll();
         }
       },
-      (cache, key) -> { Preconditions.checkState(cache.estimatedSize() >= 0); },
+      (cache, key) -> { checkState(cache.estimatedSize() >= 0); },
       (cache, key) -> { cache.stats(); },
       (cache, key) -> { cache.cleanUp(); },
 
@@ -126,7 +128,7 @@ public final class MultiThreadedTest {
       (cache, key) -> { cache.asMap().containsKey(key); },
       (cache, key) -> { cache.asMap().containsValue(key); },
       (cache, key) -> { cache.asMap().isEmpty(); },
-      (cache, key) -> { Preconditions.checkState(cache.asMap().size() >= 0); },
+      (cache, key) -> { checkState(cache.asMap().size() >= 0); },
       (cache, key) -> { cache.asMap().get(key); },
       (cache, key) -> { cache.asMap().put(key, key); },
       (cache, key) -> { cache.asMap().putAll(Map.of(key, key)); },
@@ -157,8 +159,7 @@ public final class MultiThreadedTest {
         }
       });
 
-
-  @SuppressWarnings({"unchecked", "rawtypes", "FutureReturnValueIgnored"})
+  @SuppressWarnings({"CheckReturnValue", "FutureReturnValueIgnored", "MethodReferenceUsage"})
   List<BiConsumer<AsyncLoadingCache<Int, Int>, Int>> asyncOperations = List.of(
       (cache, key) -> { cache.getIfPresent(key); },
       (cache, key) -> { cache.get(key, k -> key); },

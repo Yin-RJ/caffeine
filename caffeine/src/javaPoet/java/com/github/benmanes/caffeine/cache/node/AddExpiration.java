@@ -65,12 +65,12 @@ public final class AddExpiration extends NodeRule {
   }
 
   private void addLink(String method, String varName) {
-    MethodSpec getter = MethodSpec.methodBuilder("get" + capitalize(method))
+    var getter = MethodSpec.methodBuilder("get" + capitalize(method))
         .addModifiers(Modifier.PUBLIC)
         .addStatement("return $N", varName)
         .returns(NODE)
         .build();
-    MethodSpec setter = MethodSpec.methodBuilder("set" + capitalize(method))
+    var setter = MethodSpec.methodBuilder("set" + capitalize(method))
         .addModifiers(Modifier.PUBLIC)
         .addParameter(NODE, varName)
         .addStatement("this.$N = $N", varName, varName)
@@ -81,17 +81,17 @@ public final class AddExpiration extends NodeRule {
   }
 
   private void addVariableTime(String varName) {
-    MethodSpec getter = MethodSpec.methodBuilder("getVariableTime")
+    var getter = MethodSpec.methodBuilder("getVariableTime")
         .addModifiers(Modifier.PUBLIC)
-        .addStatement("return (long) $L.get(this)", varHandleName(varName))
+        .addStatement("return (long) $L.getOpaque(this)", varHandleName(varName))
         .returns(long.class)
         .build();
-    MethodSpec setter = MethodSpec.methodBuilder("setVariableTime")
+    var setter = MethodSpec.methodBuilder("setVariableTime")
         .addModifiers(Modifier.PUBLIC)
         .addParameter(long.class, varName)
-        .addStatement("$L.set(this, $N)", varHandleName(varName), varName)
+        .addStatement("$L.setOpaque(this, $N)", varHandleName(varName), varName)
         .build();
-    MethodSpec cas = MethodSpec.methodBuilder("casVariableTime")
+    var cas = MethodSpec.methodBuilder("casVariableTime")
         .addModifiers(Modifier.PUBLIC)
         .addParameter(long.class, "expect")
         .addParameter(long.class, "update")
@@ -112,8 +112,8 @@ public final class AddExpiration extends NodeRule {
 
     context.nodeSubtype
         .addField(long.class, "accessTime", Modifier.VOLATILE)
-        .addMethod(newGetter(Strength.STRONG, TypeName.LONG, "accessTime", Visibility.PLAIN))
-        .addMethod(newSetter(TypeName.LONG, "accessTime", Visibility.PLAIN));
+        .addMethod(newGetter(Strength.STRONG, TypeName.LONG, "accessTime", Visibility.OPAQUE))
+        .addMethod(newSetter(TypeName.LONG, "accessTime", Visibility.OPAQUE));
     addVarHandle("accessTime", TypeName.get(long.class));
     addTimeConstructorAssignment(context.constructorByKey, "accessTime", "now");
     addTimeConstructorAssignment(context.constructorByKeyRef, "accessTime", "now");
@@ -124,7 +124,7 @@ public final class AddExpiration extends NodeRule {
         && Feature.useWriteTime(context.generateFeatures)) {
       context.nodeSubtype
           .addField(long.class, "writeTime", Modifier.VOLATILE)
-          .addMethod(newGetter(Strength.STRONG, TypeName.LONG, "writeTime", Visibility.PLAIN))
+          .addMethod(newGetter(Strength.STRONG, TypeName.LONG, "writeTime", Visibility.OPAQUE))
           .addMethod(newSetter(TypeName.LONG, "writeTime", Visibility.PLAIN));
       addVarHandle("writeTime", TypeName.get(long.class));
       addTimeConstructorAssignment(context.constructorByKey, "writeTime", "now & ~1L");

@@ -1,33 +1,76 @@
 name: analysis
+permissions: read-all
 on: [ push, pull_request ]
 
 env:
-  ORG_GRADLE_PROJECT_checksumFailOn: build_finish
-  ORG_GRADLE_PROJECT_checksumIgnore: false
-  ORG_GRADLE_PROJECT_checksumPrint: true
+  GRADLE_ENTERPRISE_CACHE_PASSWORD: ${{ secrets.GRADLE_ENTERPRISE_CACHE_PASSWORD }}
+  GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_ACCESS_KEY }}
+  ALLOWED_ENDPOINTS: >
+    api.adoptium.net:443
+    api.github.com:443
+    caffeine.gradle-enterprise.cloud:443
+    downloads.gradle.org:443
+    downloads.gradle-dn.com:443
+    github.com:443
+    jcenter.bintray.com:443
+    objects.githubusercontent.com:443
+    plugins.gradle.org:443
+    plugins-artifacts.gradle.org:443
+    repo.maven.apache.org:443
+    repo1.maven.org:443
+    services.gradle.org:443
 
 jobs:
-  analyze:
+  forbiddenApis:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        java: [ 11, 17 ]
     env:
-      JAVA_VERSION: ${{ matrix.java }}
+      JAVA_VERSION: 20
     steps:
-      - uses: actions/checkout@v2.3.4
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v2
+      - name: Harden Runner
+        uses: step-security/harden-runner@8ca2b8b2ece13480cda6dacd3511b49857a23c09 # v2.5.1
         with:
-          distribution: 'zulu'
-          java-version: ${{ matrix.java }}
-      - name: Cache Gradle packages
-        uses: actions/cache@v2.1.6
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: ${{ env.ALLOWED_ENDPOINTS }}
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4.1.0
+      - name: Forbidden Apis
+        uses: ./.github/actions/run-gradle
         with:
-          path: |
-            ~/.gradle/wrapper
-            ~/.gradle/caches
-          key: ${{ runner.os }}-${{ github.job }}-${{ matrix.java }}-${{ hashFiles('**/*.gradle') }}
-          restore-keys: ${{ runner.os }}-gradle
-      - name: Run analyzers
-        run: ./.github/scripts/analyze.sh
+          java: ${{ env.JAVA_VERSION }}
+          arguments: forbiddenApis -DforbiddenApis
+
+  pmd:
+    runs-on: ubuntu-latest
+    env:
+      JAVA_VERSION: 20
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8ca2b8b2ece13480cda6dacd3511b49857a23c09 # v2.5.1
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: ${{ env.ALLOWED_ENDPOINTS }}
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4.1.0
+      - name: Pmd
+        uses: ./.github/actions/run-gradle
+        with:
+          java: ${{ env.JAVA_VERSION }}
+          arguments: pmdJavaPoet pmdMain pmdCodeGen pmdJmh -Dpmd
+
+  spotbugs:
+    runs-on: ubuntu-latest
+    env:
+      JAVA_VERSION: 20
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@8ca2b8b2ece13480cda6dacd3511b49857a23c09 # v2.5.1
+        with:
+          disable-sudo: true
+          egress-policy: block
+          allowed-endpoints: ${{ env.ALLOWED_ENDPOINTS }}
+      - uses: actions/checkout@8ade135a41bc03ea155e62e844d188df1ea18608 # v4.1.0
+      - name: Spotbugs
+        uses: ./.github/actions/run-gradle
+        with:
+          java: ${{ env.JAVA_VERSION }}
+          arguments: spotbugsJavaPoet spotbugsMain spotbugsCodeGen spotbugsJmh -Dspotbugs

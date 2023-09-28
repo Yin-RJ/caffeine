@@ -15,6 +15,7 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static com.github.benmanes.caffeine.cache.Caffeine.calculateHashMapCapacity;
 import static java.util.Objects.requireNonNull;
 
 import java.util.Collections;
@@ -22,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 
@@ -72,9 +72,10 @@ interface LocalManualCache<K, V> extends Cache<K, V> {
       Function<? super Set<? extends K>, ? extends Map<? extends K, ? extends V>> mappingFunction) {
     requireNonNull(mappingFunction);
 
-    Set<K> keysToLoad = new LinkedHashSet<>();
-    Map<K, V> found = cache().getAllPresent(keys);
-    Map<K, V> result = new LinkedHashMap<>(found.size());
+    var found = cache().getAllPresent(keys);
+    int initialCapacity = calculateHashMapCapacity(keys);
+    var result = new LinkedHashMap<K, V>(initialCapacity);
+    var keysToLoad = new LinkedHashSet<K>(initialCapacity);
     for (K key : keys) {
       V value = found.get(key);
       if (value == null) {
@@ -94,13 +95,12 @@ interface LocalManualCache<K, V> extends Cache<K, V> {
    * Performs a non-blocking bulk load of the missing keys. Any missing entry that materializes
    * during the load are replaced when the loaded entries are inserted into the cache.
    */
-  @SuppressWarnings("CatchingUnchecked")
   default void bulkLoad(Set<K> keysToLoad, Map<K, V> result,
       Function<? super Set<? extends K>, ? extends Map<? extends K, ? extends V>> mappingFunction) {
     boolean success = false;
     long startTime = cache().statsTicker().read();
     try {
-      var loaded = mappingFunction.apply(keysToLoad);
+      var loaded = mappingFunction.apply(Collections.unmodifiableSet(keysToLoad));
       loaded.forEach(cache()::put);
       for (K key : keysToLoad) {
         V value = loaded.get(key);
@@ -111,10 +111,6 @@ interface LocalManualCache<K, V> extends Cache<K, V> {
         }
       }
       success = !loaded.isEmpty();
-    } catch (RuntimeException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new CompletionException(e);
     } finally {
       long loadTime = cache().statsTicker().read() - startTime;
       if (success) {

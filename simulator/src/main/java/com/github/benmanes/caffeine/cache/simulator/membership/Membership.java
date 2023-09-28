@@ -15,6 +15,8 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.membership;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+
 /**
  * A probabilistic set for testing the membership of an element.
  *
@@ -31,7 +33,7 @@ public interface Membership {
    */
   boolean mightContain(long e);
 
-  /** Removes all of the elements from this collection. */
+  /** Removes the elements from this collection. */
   void clear();
 
   /**
@@ -41,6 +43,7 @@ public interface Membership {
    * @param e the element to add
    * @return if the membership changed as a result of this operation
    */
+  @CanIgnoreReturnValue
   boolean put(long e);
 
   /** Returns an instance that contains nothing. */

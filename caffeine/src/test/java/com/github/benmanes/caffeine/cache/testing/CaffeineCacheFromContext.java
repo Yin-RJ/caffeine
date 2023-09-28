@@ -16,7 +16,6 @@
 package com.github.benmanes.caffeine.cache.testing;
 
 import java.io.Serializable;
-import java.util.concurrent.TimeUnit;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -28,6 +27,7 @@ import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheScheduler;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheWeigher;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.InitialCapacity;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Listener;
+import com.github.benmanes.caffeine.cache.testing.CacheSpec.Loader;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Maximum;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.ReferenceType;
 
@@ -36,7 +36,6 @@ import com.github.benmanes.caffeine.cache.testing.CacheSpec.ReferenceType;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@SuppressWarnings("PreferJavaTimeOverload")
 public final class CaffeineCacheFromContext {
   interface SerializableTicker extends Ticker, Serializable {}
 
@@ -53,7 +52,7 @@ public final class CaffeineCacheFromContext {
       builder.recordStats();
     }
     if (context.maximum() != Maximum.DISABLED) {
-      if (context.weigher() == CacheWeigher.DEFAULT) {
+      if (context.cacheWeigher() == CacheWeigher.DISABLED) {
         builder.maximumSize(context.maximum().max());
       } else {
         builder.weigher(context.weigher());
@@ -64,13 +63,13 @@ public final class CaffeineCacheFromContext {
       builder.expireAfter(context.expiry());
     }
     if (context.expiresAfterAccess()) {
-      builder.expireAfterAccess(context.expireAfterAccess().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.expireAfterAccess(context.expireAfterAccess().duration());
     }
     if (context.expiresAfterWrite()) {
-      builder.expireAfterWrite(context.expireAfterWrite().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.expireAfterWrite(context.expireAfterWrite().duration());
     }
     if (context.refreshes()) {
-      builder.refreshAfterWrite(context.refreshAfterWrite().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.refreshAfterWrite(context.refreshAfterWrite().duration());
     }
     if (context.expires() || context.refreshes()) {
       SerializableTicker ticker = context.ticker()::read;
@@ -89,24 +88,24 @@ public final class CaffeineCacheFromContext {
     if (context.executorType() != CacheExecutor.DEFAULT) {
       builder.executor(context.executor());
     }
-    if (context.cacheScheduler != CacheScheduler.DEFAULT) {
+    if (context.cacheScheduler != CacheScheduler.DISABLED) {
       builder.scheduler(context.scheduler());
     }
-    if (context.removalListenerType() != Listener.DEFAULT) {
+    if (context.removalListenerType() != Listener.DISABLED) {
       builder.removalListener(context.removalListener());
     }
-    if (context.evictionListenerType() != Listener.DEFAULT) {
+    if (context.evictionListenerType() != Listener.DISABLED) {
       builder.evictionListener(context.evictionListener());
     }
     if (context.isAsync()) {
-      if (context.loader() == null) {
+      if (context.loader() == Loader.DISABLED) {
         context.asyncCache = builder.buildAsync();
       } else {
         context.asyncCache = builder.buildAsync(
-            context.isAsyncLoading() ? context.loader().async() : context.loader());
+            context.isAsyncLoader() ? context.loader().async() : context.loader());
       }
       context.cache = context.asyncCache.synchronous();
-    } else if (context.loader() == null) {
+    } else if (context.loader() == Loader.DISABLED) {
       context.cache = builder.build();
     } else {
       context.cache = builder.build(context.loader());

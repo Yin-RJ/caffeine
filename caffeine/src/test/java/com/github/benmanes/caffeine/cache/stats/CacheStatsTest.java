@@ -16,6 +16,7 @@
 package com.github.benmanes.caffeine.cache.stats;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -25,11 +26,13 @@ import org.testng.annotations.Test;
  */
 public final class CacheStatsTest {
 
-  @Test(dataProvider = "badArgs", expectedExceptions = IllegalArgumentException.class)
+  @Test(dataProvider = "badArgs")
   public void invalid(int hitCount, int missCount, int loadSuccessCount, int loadFailureCount,
       int totalLoadTime, int evictionCount, int evictionWeight) {
-    CacheStats.of(hitCount, missCount, loadSuccessCount,
-        loadFailureCount, totalLoadTime, evictionCount, evictionWeight);
+    assertThrows(IllegalArgumentException.class, () -> {
+      CacheStats.of(hitCount, missCount, loadSuccessCount,
+          loadFailureCount, totalLoadTime, evictionCount, evictionWeight);
+    });
   }
 
   @Test
@@ -92,6 +95,13 @@ public final class CacheStatsTest {
     checkStats(max.plus(max), Long.MAX_VALUE, Long.MAX_VALUE, 1.0, Long.MAX_VALUE, 1.0,
         Long.MAX_VALUE, Long.MAX_VALUE, 1.0, Long.MAX_VALUE, Long.MAX_VALUE, 1.0,
         Long.MAX_VALUE, Long.MAX_VALUE);
+  }
+
+  @Test
+  public void underflow() {
+    var max = CacheStats.of(Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE,
+        Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
+    assertThat(CacheStats.empty().minus(max)).isEqualTo(CacheStats.empty());
   }
 
   private static void checkStats(CacheStats stats, long requestCount, long hitCount,

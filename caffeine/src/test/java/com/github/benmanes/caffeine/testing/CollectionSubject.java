@@ -25,7 +25,6 @@ import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.Set;
 
-import com.google.common.primitives.Ints;
 import com.google.common.truth.FailureMetadata;
 
 /**
@@ -51,13 +50,13 @@ public class CollectionSubject extends com.google.common.truth.IterableSubject {
 
   /** Fails if the collection does not have the given size. */
   public final void hasSize(long expectedSize) {
-    hasSize(Ints.checkedCast(expectedSize));
+    hasSize(Math.toIntExact(expectedSize));
   }
 
   /** Fails if the collection does not have less than the given size. */
   public void hasSizeLessThan(long other) {
     checkArgument(other >= 0, "expectedSize (%s) must be >= 0", other);
-    check("size()").that(actual.size()).isLessThan(Ints.checkedCast(other));
+    check("size()").that(actual.size()).isLessThan(Math.toIntExact(other));
   }
 
   /**
@@ -86,6 +85,7 @@ public class CollectionSubject extends com.google.common.truth.IterableSubject {
     check("iterator().hasNext()").that(actual.iterator().hasNext()).isFalse();
   }
 
+  @SuppressWarnings("CollectionToArray")
   private void checkCollection() {
     check("size()").that(actual).hasSize(0);
     check("isEmpty()").that(actual).isEmpty();
@@ -110,10 +110,10 @@ public class CollectionSubject extends com.google.common.truth.IterableSubject {
     check("peek()").that(queue.peek()).isNull();
     try {
       failWithActual("remove()", queue.remove());
-    } catch (NoSuchElementException expected) {}
+    } catch (NoSuchElementException expected) { /* ignored */ }
     try {
       failWithActual("element()", queue.element());
-    } catch (NoSuchElementException expected) {}
+    } catch (NoSuchElementException expected) { /* ignored */ }
   }
 
   private void checkDeque(Deque<?> deque) {

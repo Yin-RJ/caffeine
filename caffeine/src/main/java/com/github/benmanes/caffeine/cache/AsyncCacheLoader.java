@@ -24,10 +24,8 @@ import java.util.concurrent.Executor;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import com.google.errorprone.annotations.CheckReturnValue;
-
 /**
- * Computes or retrieves values asynchronously, based on a key, for use in populating a
+ * Computes or retrieves values asynchronously based on a key, for use in populating a
  * {@link AsyncLoadingCache}.
  * <p>
  * Most implementations will only need to implement {@link #asyncLoad}. Other methods may be
@@ -44,7 +42,7 @@ import com.google.errorprone.annotations.CheckReturnValue;
  */
 @FunctionalInterface
 @SuppressWarnings("PMD.SignatureDeclareThrowsException")
-public interface AsyncCacheLoader<K extends Object, V extends Object> {
+public interface AsyncCacheLoader<K, V> {
 
   /**
    * Asynchronously computes or retrieves the value corresponding to {@code key}.
@@ -52,7 +50,7 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    * <b>Warning:</b> loading <b>must not</b> attempt to update any mappings of this cache directly.
    *
    * @param key the non-null key whose value should be loaded
-   * @param executor the executor with which the entry is asynchronously loaded
+   * @param executor the executor with which the entry may be asynchronously loaded with
    * @return the future value associated with {@code key}
    * @throws Exception or Error, in which case the mapping is unchanged
    * @throws InterruptedException if this method is interrupted. {@code InterruptedException} is
@@ -65,10 +63,10 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    * Asynchronously computes or retrieves the values corresponding to {@code keys}. This method is
    * called by {@link AsyncLoadingCache#getAll}.
    * <p>
-   * If the returned map doesn't contain all requested {@code keys} then the entries it does contain
-   * will be cached and {@code getAll} will return the partial results. If the returned map contains
-   * extra keys not present in {@code keys} then all returned entries will be cached, but only the
-   * entries for {@code keys} will be returned from {@code getAll}.
+   * If the returned map doesn't contain all requested {@code keys}, then the entries it does
+   * contain will be cached, and {@code getAll} will return the partial results. If the returned map
+   * contains extra keys not present in {@code keys}, then all returned entries will be cached, but
+   * only the entries for {@code keys} will be returned from {@code getAll}.
    * <p>
    * This method should be overridden when bulk retrieval is significantly more efficient than many
    * individual lookups. Note that {@link AsyncLoadingCache#getAll} will defer to individual calls
@@ -77,7 +75,7 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    * <b>Warning:</b> loading <b>must not</b> attempt to update any mappings of this cache directly.
    *
    * @param keys the unique, non-null keys whose values should be loaded
-   * @param executor the executor with which the entries are asynchronously loaded
+   * @param executor the executor with which the entry may be asynchronously loaded with
    * @return a future containing the map from each key in {@code keys} to the value associated with
    *         that key; <b>may not contain null values</b>
    * @throws Exception or Error, in which case the mappings are unchanged
@@ -92,7 +90,7 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
 
   /**
    * Asynchronously computes or retrieves a replacement value corresponding to an already-cached
-   * {@code key}. If the replacement value is not found then the mapping will be removed if
+   * {@code key}. If the replacement value is not found, then the mapping will be removed if
    * {@code null} is computed. This method is called when an existing cache entry is refreshed by
    * {@link Caffeine#refreshAfterWrite}, or through a call to {@link LoadingCache#refresh}.
    * <p>
@@ -103,7 +101,7 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    *
    * @param key the non-null key whose value should be loaded
    * @param oldValue the non-null old value corresponding to {@code key}
-   * @param executor the executor with which the entry is asynchronously loaded
+   * @param executor the executor with which the entry may be asynchronously loaded with
    * @return a future containing the new value associated with {@code key}, or containing
    *         {@code null} if the mapping is to be removed
    * @throws Exception or Error, in which case the mapping is unchanged
@@ -134,9 +132,8 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    * @return an asynchronous cache loader that delegates to the supplied {@code mappingFunction}
    * @throws NullPointerException if the mappingFunction is null
    */
-  @CheckReturnValue
-  static <K extends Object, V extends Object> AsyncCacheLoader<K, V> bulk(
-      Function<? super Set<? extends K>, ? extends Map<? extends K, ? extends V>> mappingFunction) {
+  static <K, V> AsyncCacheLoader<K, V> bulk(Function<? super Set<? extends K>,
+      ? extends Map<? extends K, ? extends V>> mappingFunction) {
     return CacheLoader.bulk(mappingFunction);
   }
 
@@ -158,9 +155,7 @@ public interface AsyncCacheLoader<K extends Object, V extends Object> {
    * @return an asynchronous cache loader that delegates to the supplied {@code mappingFunction}
    * @throws NullPointerException if the mappingFunction is null
    */
-  @CheckReturnValue
-  static <K extends Object, V extends Object> AsyncCacheLoader<K, V> bulk(
-      BiFunction<? super Set<? extends K>, ? super Executor,
+  static <K, V> AsyncCacheLoader<K, V> bulk(BiFunction<? super Set<? extends K>, ? super Executor,
       ? extends CompletableFuture<? extends Map<? extends K, ? extends V>>> mappingFunction) {
     requireNonNull(mappingFunction);
     return new AsyncCacheLoader<>() {

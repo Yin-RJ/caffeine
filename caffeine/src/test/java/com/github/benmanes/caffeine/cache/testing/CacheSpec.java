@@ -15,24 +15,28 @@
  */
 package com.github.benmanes.caffeine.cache.testing;
 
+import static com.github.benmanes.caffeine.cache.testing.CacheContext.intern;
 import static com.github.benmanes.caffeine.testing.ConcurrentTestHarness.scheduledExecutor;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
+import static java.util.stream.Collectors.toUnmodifiableMap;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
-import java.io.ObjectStreamException;
 import java.io.Serializable;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
@@ -53,6 +57,8 @@ import com.github.benmanes.caffeine.cache.testing.RemovalListeners.ConsumingRemo
 import com.github.benmanes.caffeine.testing.ConcurrentTestHarness;
 import com.github.benmanes.caffeine.testing.Int;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.testing.TestingExecutors;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * The cache test specification so that a {@link org.testng.annotations.DataProvider} can construct
@@ -66,10 +72,7 @@ public @interface CacheSpec {
 
   /* --------------- Compute --------------- */
 
-  /**
-   * Indicates whether the test supports a cache allowing for asynchronous computations. This is
-   * for implementation specific tests that may inspect the internal state of a down casted cache.
-   */
+  /** Indicates whether the test supports a cache allowing for asynchronous computations. */
   Compute[] compute() default {
     Compute.ASYNC,
     Compute.SYNC
@@ -174,14 +177,14 @@ public @interface CacheSpec {
 
   /** The weigher, each resulting in a new combination. */
   CacheWeigher[] weigher() default {
-    CacheWeigher.DEFAULT,
+    CacheWeigher.DISABLED,
     CacheWeigher.ZERO,
     CacheWeigher.TEN
   };
 
-  enum CacheWeigher implements Weigher<Object, Object> {
+  enum CacheWeigher {
     /** A flag indicating that no weigher is set when building the cache. */
-    DEFAULT(1),
+    DISABLED(1),
     /** A flag indicating that every entry is valued at 10 units. */
     TEN(10),
     /** A flag indicating that every entry is valued at 0 unit. */
@@ -190,44 +193,37 @@ public @interface CacheSpec {
     NEGATIVE(-1),
     /** A flag indicating that every entry is valued at Integer.MAX_VALUE units. */
     MAX_VALUE(Integer.MAX_VALUE),
-    /** A flag indicating that the entry is weighted by the integer value. */
-    VALUE(1) {
-      @Override public int weigh(Object key, Object value) {
-        requireNonNull(key);
-        return ((Int) value).intValue();
-      }
-    },
+    /** A flag indicating that the entry is weighted by the absolute integer value. */
+    VALUE(() -> (key, value) -> Math.abs(((Int) value).intValue()), 1),
     /** A flag indicating that the entry is weighted by the value's collection size. */
-    COLLECTION(1) {
-      @Override public int weigh(Object key, Object value) {
-        requireNonNull(key);
-        return ((Collection<?>) value).size();
-      }
-    },
+    COLLECTION(() -> (key, value) -> ((Collection<?>) value).size(), 1),
     /** A flag indicating that the entry's weight is randomly changing. */
-    RANDOM(1) {
-      @Override public int weigh(Object key, Object value) {
-        requireNonNull(key);
-        requireNonNull(value);
-        return ThreadLocalRandom.current().nextInt(1, 10);
-      }
-    };
+    RANDOM(Weighers::random, 1),
+    /** A flag indicating that the entry's weight records interactions. */
+    @SuppressWarnings("unchecked")
+    MOCKITO(() -> {
+      var weigher = Mockito.mock(Weigher.class);
+      when(weigher.weigh(any(), any())).thenReturn(1);
+      return weigher;
+    }, 1);
 
+    private final Supplier<Weigher<Object, Object>> factory;
     private final int units;
 
-    CacheWeigher(int multiplier) {
-      this.units = multiplier;
+    CacheWeigher(int units) {
+      this.factory = () -> Weighers.constant(units);
+      this.units = units;
     }
-
-    @Override
-    public int weigh(Object key, Object value) {
-      requireNonNull(key);
-      requireNonNull(value);
-      return units;
+    CacheWeigher(Supplier<Weigher<Object, Object>> factory, int units) {
+      this.factory = factory;
+      this.units = units;
     }
-
     public int unitsPerEntry() {
       return units;
+    }
+    @SuppressWarnings("unchecked")
+    public <K, V> Weigher<K, V> create() {
+      return (Weigher<K, V>) factory.get();
     }
   }
 
@@ -267,11 +263,6 @@ public @interface CacheSpec {
   /** The fixed duration for the expiry. */
   Expire expiryTime() default Expire.FOREVER;
 
-  /** Indicates if the amount of time that should be auto-advance for each entry when populating. */
-  Advance[] advanceOnPopulation() default {
-    Advance.ZERO
-  };
-
   enum CacheExpiry {
     DISABLED {
       @Override public <K, V> Expiry<K, V> createExpiry(Expire expiryTime) {
@@ -280,8 +271,7 @@ public @interface CacheSpec {
     },
     MOCKITO {
       @Override public <K, V> Expiry<K, V> createExpiry(Expire expiryTime) {
-        @SuppressWarnings("unchecked")
-        Expiry<K, V> mock = Mockito.mock(Expiry.class);
+        Expiry<K, V> mock = Mockito.mock();
         when(mock.expireAfterCreate(any(), any(), anyLong()))
             .thenReturn(expiryTime.timeNanos());
         when(mock.expireAfterUpdate(any(), any(), anyLong(), anyLong()))
@@ -294,24 +284,24 @@ public @interface CacheSpec {
     CREATE {
       @Override public <K, V> Expiry<K, V> createExpiry(Expire expiryTime) {
         return ExpiryBuilder
-            .expiringAfterCreate(expiryTime.timeNanos())
+            .expiringAfterCreate(expiryTime.duration())
             .build();
       }
     },
     WRITE {
       @Override public <K, V> Expiry<K, V> createExpiry(Expire expiryTime) {
         return ExpiryBuilder
-            .expiringAfterCreate(expiryTime.timeNanos())
-            .expiringAfterUpdate(expiryTime.timeNanos())
+            .expiringAfterCreate(expiryTime.duration())
+            .expiringAfterUpdate(expiryTime.duration())
             .build();
       }
     },
     ACCESS {
       @Override public <K, V> Expiry<K, V> createExpiry(Expire expiryTime) {
         return ExpiryBuilder
-            .expiringAfterCreate(expiryTime.timeNanos())
-            .expiringAfterUpdate(expiryTime.timeNanos())
-            .expiringAfterRead(expiryTime.timeNanos())
+            .expiringAfterCreate(expiryTime.duration())
+            .expiringAfterUpdate(expiryTime.duration())
+            .expiringAfterRead(expiryTime.duration())
             .build();
       }
     };
@@ -333,27 +323,15 @@ public @interface CacheSpec {
     FOREVER(Long.MAX_VALUE);
 
     private final long timeNanos;
+    private final Duration duration;
 
     Expire(long timeNanos) {
       this.timeNanos = timeNanos;
+      this.duration = Duration.ofNanos(timeNanos);
     }
-
-    public long timeNanos() {
-      return timeNanos;
+    public Duration duration() {
+      return duration;
     }
-  }
-
-  /** The time increment to advance by after each entry is added when populating the cache. */
-  enum Advance {
-    ZERO(0),
-    ONE_MINUTE(TimeUnit.MINUTES.toNanos(1));
-
-    private final long timeNanos;
-
-    Advance(long timeNanos) {
-      this.timeNanos = timeNanos;
-    }
-
     public long timeNanos() {
       return timeNanos;
     }
@@ -382,12 +360,12 @@ public @interface CacheSpec {
     /** Prevents referent from being reclaimed by the garbage collector. */
     STRONG,
 
-    /** Referent reclaimed when no strong or soft references exist. */
+    /** The referent is reclaimed when there are no strong or soft references. */
     WEAK,
 
     /**
-     * Referent reclaimed in an LRU fashion when the VM runs low on memory and no strong
-     * references exist.
+     * The referent is reclaimed in an LRU fashion when the JVM runs low on memory and there are no
+     * strong references.
      */
     SOFT
   }
@@ -397,53 +375,51 @@ public @interface CacheSpec {
   /** The removal listeners, each resulting in a new combination. */
   Listener[] removalListener() default {
     Listener.CONSUMING,
-    Listener.DEFAULT,
+    Listener.DISABLED,
   };
 
   /** The eviction listeners, each resulting in a new combination. */
   Listener[] evictionListener() default {
     Listener.CONSUMING,
-    Listener.DEFAULT,
+    Listener.DISABLED,
   };
 
+  @SuppressWarnings("unchecked")
   enum Listener {
     /** A flag indicating that no removal listener is configured. */
-    DEFAULT {
-      @Override public <K, V> RemovalListener<K, V> create() {
-        return null;
-      }
-    },
+    DISABLED(() -> null),
     /** A removal listener that rejects all notifications. */
-    REJECTING {
-      @Override public <K, V> RemovalListener<K, V> create() {
-        return RemovalListeners.rejecting();
-      }
-    },
+    REJECTING(RemovalListeners::rejecting),
     /** A {@link ConsumingRemovalListener} retains all notifications for evaluation by the test. */
-    CONSUMING {
-      @Override public <K, V> RemovalListener<K, V> create() {
-        return RemovalListeners.consuming();
-      }
-    },
+    CONSUMING(RemovalListeners::consuming),
     /** A removal listener that records interactions. */
-    MOCKITO {
-      @SuppressWarnings("unchecked")
-      @Override public <K, V> RemovalListener<K, V> create() {
-        return Mockito.mock(RemovalListener.class);
-      }
-    };
+    MOCKITO(() -> Mockito.mock(RemovalListener.class));
 
-    public abstract <K, V> RemovalListener<K, V> create();
+    private final Supplier<RemovalListener<Object, Object>> factory;
+
+    Listener(Supplier<RemovalListener<Object, Object>> factory) {
+      this.factory = factory;
+    }
+    public <K, V> RemovalListener<K, V> create() {
+      return (RemovalListener<K, V>) factory.get();
+    }
   }
 
   /* --------------- CacheLoader --------------- */
 
   Loader[] loader() default {
+    Loader.DISABLED,
     Loader.NEGATIVE,
   };
 
   /** The {@link CacheLoader} for constructing the {@link LoadingCache}. */
   enum Loader implements CacheLoader<Int, Int> {
+    /** A flag indicating that a loader should not be configured. */
+    DISABLED {
+      @Override public Int load(Int key) {
+        throw new AssertionError();
+      }
+    },
     /** A loader that always returns null (no mapping). */
     NULL {
       @Override public Int load(Int key) {
@@ -454,20 +430,32 @@ public @interface CacheSpec {
     IDENTITY {
       @Override public Int load(Int key) {
         requireNonNull(key);
-        return key;
+        return intern(key);
       }
     },
     /** A loader that returns the key's negation. */
     NEGATIVE {
       @Override public Int load(Int key) {
         // Intern the loader's return value so that it is retained on a refresh
-        return CacheContext.intern(key, k -> new Int(-k.intValue()));
+        return intern(key, k -> new Int(-k.intValue()));
       }
     },
-    /** A loader that always throws an exception. */
+    /** A loader that always throws a runtime exception. */
     EXCEPTIONAL {
       @Override public Int load(Int key) {
         throw new IllegalStateException();
+      }
+    },
+    /** A loader that always throws a checked exception. */
+    CHECKED_EXCEPTIONAL {
+      @Override public Int load(Int key) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+    },
+    /** A loader that always throws an interrupted exception. */
+    INTERRUPTED {
+      @Override public Int load(Int key) throws InterruptedException {
+        throw new InterruptedException();
       }
     },
 
@@ -489,6 +477,7 @@ public @interface CacheSpec {
         var result = new HashMap<Int, Int>(keys.size());
         for (Int key : keys) {
           result.put(key, key);
+          intern(key);
         }
         return result;
       }
@@ -501,8 +490,19 @@ public @interface CacheSpec {
         var result = new HashMap<Int, Int>(keys.size());
         for (Int key : keys) {
           result.put(key, NEGATIVE.load(key));
+          intern(key);
         }
         return result;
+      }
+    },
+    /** A bulk-only loader that loads only keys that were not requested. */
+    BULK_DIFFERENT {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public Map<Int, Int> loadAll(Set<? extends Int> keys) {
+        return keys.stream().collect(toUnmodifiableMap(
+            key -> intern(intern(key).negate()), identity()));
       }
     },
     /** A bulk-only loader that loads more than requested. */
@@ -520,7 +520,7 @@ public @interface CacheSpec {
         return BULK_NEGATIVE.loadAll(moreKeys);
       }
     },
-    /** A bulk-only loader that always throws an exception. */
+    /** A bulk-only loader that always throws a runtime exception. */
     BULK_EXCEPTIONAL {
       @Override public Int load(Int key) {
         throw new UnsupportedOperationException();
@@ -529,6 +529,56 @@ public @interface CacheSpec {
         throw new IllegalStateException();
       }
     },
+    /** A bulk-only loader that always throws a checked exception. */
+    BULK_CHECKED_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public Map<Int, Int> loadAll(Set<? extends Int> keys) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+    },
+    /** A bulk-only loader that always throws an interrupted exception. */
+    BULK_INTERRUPTED {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public Map<Int, Int> loadAll(Set<? extends Int> keys) throws InterruptedException {
+        throw new InterruptedException();
+      }
+    },
+    /** A bulk loader that tries to modify the keys. */
+    BULK_MODIFY_KEYS {
+      @CanIgnoreReturnValue
+      @Override public Int load(Int key) {
+        return key;
+      }
+      @Override public Map<Int, Int> loadAll(Set<? extends Int> keys) {
+        keys.clear();
+        return Map.of();
+      }
+    },
+
+    /** A loader that always throws a runtime exception. */
+    ASYNC_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Int> asyncLoad(Int key, Executor executor) {
+        throw new IllegalStateException();
+      }
+    },
+    /** A loader that always throws a checked exception. */
+    ASYNC_CHECKED_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Int> asyncLoad(
+          Int key, Executor executor) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+    },
+    /** An async loader that returns a incomplete future. */
     ASYNC_INCOMPLETE {
       @Override public Int load(Int key) {
         throw new UnsupportedOperationException();
@@ -542,13 +592,106 @@ public @interface CacheSpec {
         executor.execute(() -> {});
         return new CompletableFuture<>();
       }
+    },
+    /** A loader that always throws an interrupted exception. */
+    ASYNC_INTERRUPTED {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Int> asyncLoad(
+          Int key, Executor executor) throws InterruptedException {
+        throw new InterruptedException();
+      }
+    },
+    /** A loader that always throws a runtime exception. */
+    ASYNC_BULK_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Map<Int, Int>> asyncLoadAll(
+          Set<? extends Int> keys, Executor executor) {
+        throw new IllegalStateException();
+      }
+    },
+    /** A loader that always throws a checked exception. */
+    ASYNC_BULK_CHECKED_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Map<Int, Int>> asyncLoadAll(
+          Set<? extends Int> keys, Executor executor) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+    },
+    /** An async bulk loader that tries to modify the keys. */
+    ASYNC_BULK_MODIFY_KEYS {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Map<Int, Int>> asyncLoadAll(
+          Set<? extends Int> keys, Executor executor) {
+        keys.clear();
+        return CompletableFuture.completedFuture(Map.of());
+      }
+    },
+    /** A loader that always throws an interrupted exception. */
+    ASYNC_BULK_INTERRUPTED {
+      @Override public Int load(Int key) {
+        throw new UnsupportedOperationException();
+      }
+      @Override public CompletableFuture<Map<Int, Int>> asyncLoadAll(
+          Set<? extends Int> keys, Executor executor) throws InterruptedException {
+        throw new InterruptedException();
+      }
+    },
+
+    /** A loader that always throws a runtime exception. */
+    REFRESH_EXCEPTIONAL {
+      @Override public Int load(Int key) {
+        throw new IllegalStateException();
+      }
+      @Override public CompletableFuture<Int> asyncLoad(Int key, Executor executor) {
+        throw new IllegalStateException();
+      }
+      @Override public CompletableFuture<Int> asyncReload(
+          Int key, Int oldValue, Executor executor) {
+        throw new IllegalStateException();
+      }
+    },
+    /** A loader that always throws a checked exception. */
+    REFRESH_CHECKED_EXCEPTIONAL {
+      @Override public Int load(Int key) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+      @Override public CompletableFuture<Int> asyncLoad(
+          Int key, Executor executor) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+      @Override public CompletableFuture<Int> asyncReload(
+          Int key, Int oldValue, Executor executor) throws ExecutionException {
+        throw new ExecutionException(null);
+      }
+    },
+    /** A loader that always throws an interrupted exception. */
+    REFRESH_INTERRUPTED {
+      @Override public Int load(Int key) throws InterruptedException {
+        throw new InterruptedException();
+      }
+      @Override public CompletableFuture<Int> asyncLoad(
+          Int key, Executor executor) throws InterruptedException {
+        throw new InterruptedException();
+      }
+      @Override public CompletableFuture<Int> asyncReload(
+          Int key, Int oldValue, Executor executor) throws InterruptedException {
+        throw new InterruptedException();
+      }
     };
 
     private final boolean bulk;
     private final AsyncCacheLoader<Int, Int> asyncLoader;
 
     Loader() {
-      bulk = name().startsWith("BULK");
+      bulk = name().contains("BULK");
       asyncLoader = bulk
           ? new BulkSeriazableAsyncCacheLoader(this)
           : new SeriazableAsyncCacheLoader(this);
@@ -573,10 +716,11 @@ public @interface CacheSpec {
         this.loader = loader;
       }
       @Override
-      public CompletableFuture<? extends Int> asyncLoad(Int key, Executor executor) {
+      public CompletableFuture<? extends Int> asyncLoad(
+          Int key, Executor executor) throws Exception {
         return loader.asyncLoad(key, executor);
       }
-      private Object readResolve() throws ObjectStreamException {
+      private Object readResolve() {
         return loader.asyncLoader;
       }
     }
@@ -592,7 +736,7 @@ public @interface CacheSpec {
       }
       @Override
       public CompletableFuture<? extends Map<? extends Int, ? extends Int>> asyncLoadAll(
-          Set<? extends Int> keys, Executor executor) {
+          Set<? extends Int> keys, Executor executor) throws Exception {
         return loader.asyncLoadAll(keys, executor);
       }
     }
@@ -614,47 +758,44 @@ public @interface CacheSpec {
 
   /** The executors that the cache can be configured with. */
   enum CacheExecutor {
-    DEFAULT { // fork-join common pool
-      @Override public Executor create() {
-        // Use with caution as may be unpredictable during tests if awaiting completion
-        return null;
-      }
-    },
-    DIRECT {
-      @Override public Executor create() {
-        // Cache implementations must avoid deadlocks by incorrectly assuming async execution
-        return new TrackingExecutor(MoreExecutors.newDirectExecutorService());
-      }
-    },
-    THREADED {
-      @Override public Executor create() {
-        return new TrackingExecutor(ConcurrentTestHarness.executor);
-      }
-    },
-    REJECTING {
-      @Override public Executor create() {
-        // Cache implementations must avoid corrupting internal state due to rejections
-        return new ForkJoinPool() {
-          @Override public void execute(Runnable task) {
-            throw new RejectedExecutionException();
-          }
-        };
-      }
-    };
+    // Use with caution as may be unpredictable during tests if awaiting completion
+    DEFAULT(() -> null), // fork-join common pool
+    // Cache implementations must avoid deadlocks by incorrectly assuming async execution
+    DIRECT(() -> new TrackingExecutor(MoreExecutors.newDirectExecutorService())),
+    // Cache implementations must continue to evict if the maintenance task is lost
+    DISCARDING(() -> new TrackingExecutor(TestingExecutors.noOpScheduledExecutor())),
+    // Use with caution as may be unpredictable during tests if awaiting completion
+    THREADED(() -> new TrackingExecutor(ConcurrentTestHarness.executor)),
+    // Cache implementations must avoid corrupting internal state due to rejections
+    REJECTING(() -> {
+      return new TrackingExecutor(new ForkJoinPool() {
+        @Override public void execute(Runnable task) {
+          throw new RejectedExecutionException();
+        }
+      });
+    });
 
-    public abstract Executor create();
+    private final Supplier<TrackingExecutor> executor;
+
+    CacheExecutor(Supplier<TrackingExecutor> executor) {
+      this.executor = requireNonNull(executor);
+    }
+
+    public TrackingExecutor create() {
+      return executor.get();
+    }
   }
 
   /* --------------- Scheduler --------------- */
 
   /** The executors retrieved from a supplier, each resulting in a new combination. */
   CacheScheduler[] scheduler() default {
-    CacheScheduler.DEFAULT,
+    CacheScheduler.DISABLED,
   };
 
   /** The scheduler that the cache can be configured with. */
   enum CacheScheduler {
-    DEFAULT(() -> null), // disabled
+    DISABLED(() -> null),
     SYSTEM(Scheduler::systemScheduler),
     THREADED(() -> Scheduler.forScheduledExecutorService(scheduledExecutor)),
     MOCKITO(() -> Mockito.mock(Scheduler.class));

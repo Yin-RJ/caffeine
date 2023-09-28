@@ -24,14 +24,12 @@ import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.List;
-import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 import org.apache.commons.compress.archivers.ArchiveException;
-import org.apache.commons.compress.archivers.ArchiveInputStream;
 import org.apache.commons.compress.archivers.ArchiveStreamFactory;
 import org.apache.commons.compress.compressors.CompressorException;
 import org.apache.commons.compress.compressors.CompressorStreamFactory;
@@ -41,7 +39,6 @@ import org.tukaani.xz.XZInputStream;
 
 import com.google.common.base.Throwables;
 import com.google.common.collect.AbstractIterator;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 
 /**
@@ -72,9 +69,9 @@ public abstract class AbstractTraceReader implements TraceReader {
     BufferedInputStream buffered = null;
     try {
       buffered = new BufferedInputStream(input, BUFFER_SIZE);
-      List<Function<InputStream, InputStream>> extractors = ImmutableList.of(
+      List<UnaryOperator<InputStream>> extractors = List.of(
           this::tryXZ, this::tryCompressed, this::tryArchived);
-      for (Function<InputStream, InputStream> extractor : extractors) {
+      for (var extractor : extractors) {
         buffered.mark(100);
         InputStream next = extractor.apply(buffered);
         if (next == null) {
@@ -120,8 +117,8 @@ public abstract class AbstractTraceReader implements TraceReader {
   /** Returns a unarchived stream, else {@code null}. */
   private @Nullable InputStream tryArchived(InputStream input) {
     try {
-      ArchiveInputStream archive = new ArchiveStreamFactory().createArchiveInputStream(input);
-      Iterator<InputStream> entries = new AbstractIterator<InputStream>() {
+      var archive = new ArchiveStreamFactory().createArchiveInputStream(input);
+      var entries = new AbstractIterator<InputStream>() {
         @Override protected InputStream computeNext() {
           try {
             return (archive.getNextEntry() == null)
@@ -132,11 +129,7 @@ public abstract class AbstractTraceReader implements TraceReader {
           }
         }
       };
-      return new FilterInputStream(new SequenceInputStream(Iterators.asEnumeration(entries))) {
-        @Override public void close() throws IOException {
-          archive.close();
-        }
-      };
+      return new MultiInputStream(archive, entries);
     } catch (ArchiveException e) {
       return null;
     }
@@ -144,12 +137,24 @@ public abstract class AbstractTraceReader implements TraceReader {
 
   /** Returns the input stream for the raw file. */
   private InputStream openFile() throws IOException {
-    Path file = Paths.get(filePath);
+    var file = Paths.get(filePath);
     if (Files.exists(file)) {
       return Files.newInputStream(file);
     }
     InputStream input = getClass().getResourceAsStream(filePath);
     checkArgument(input != null, "Could not find file: %s", filePath);
     return input;
+  }
+
+  private static final class MultiInputStream extends FilterInputStream {
+    private final InputStream parent;
+
+    public MultiInputStream(InputStream parent, Iterator<InputStream> children) {
+      super(new SequenceInputStream(Iterators.asEnumeration(children)));
+      this.parent = parent;
+    }
+    @Override public void close() throws IOException {
+      parent.close();
+    }
   }
 }

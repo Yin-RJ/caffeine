@@ -17,6 +17,7 @@ package com.github.benmanes.caffeine.cache.simulator.admission.bloom;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static java.util.Locale.US;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -32,7 +33,6 @@ import com.github.benmanes.caffeine.cache.simulator.membership.FilterType;
 import com.github.benmanes.caffeine.cache.simulator.membership.Membership;
 import com.github.benmanes.caffeine.cache.simulator.membership.bloom.BloomFilter;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.jakewharton.fliptables.FlipTable;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
@@ -55,8 +55,9 @@ public class MembershipTest {
       capacities.add(capacity);
     }
 
+    Random random = new Random();
     for (int capacity : capacities) {
-      long[] input = new Random().longs(capacity).distinct().toArray();
+      long[] input = random.longs(capacity).distinct().toArray();
       Config config = getConfig(filterType, capacity);
       List<String[]> rows = new ArrayList<>();
 
@@ -80,7 +81,7 @@ public class MembershipTest {
   public void caffeine_ensureCapacity(int expectedInsertions, double fpp) {
     BloomFilter filter = new BloomFilter();
     filter.ensureCapacity(expectedInsertions, fpp);
-    filter.put(-1);
+    assertThat(filter.put(-1)).isTrue();
   }
 
   @DataProvider(name = "ensureCapacity")
@@ -118,7 +119,7 @@ public class MembershipTest {
   }
 
   private Config getConfig(FilterType filterType, int capacity) {
-    Map<String, Object> properties = ImmutableMap.of(
+    Map<String, Object> properties = Map.of(
         "membership.expected-insertions-multiplier", EXPECTED_INSERTIONS_MULTIPLIER,
         "membership.filter", filterType.name(),
         "maximum-size", capacity,
@@ -132,9 +133,9 @@ public class MembershipTest {
       int expectedInsertions, int falsePositives, double falsePositiveRate) {
     return new String[] {
         filterType.toString(),
-        String.format("%,d", capacity),
-        String.format("%,d", expectedInsertions),
-        String.format("%,d (%.2f %%)", falsePositives, 100 * falsePositiveRate),
+        String.format(US, "%,d", capacity),
+        String.format(US, "%,d", expectedInsertions),
+        String.format(US, "%,d (%.2f %%)", falsePositives, 100 * falsePositiveRate),
     };
   }
 

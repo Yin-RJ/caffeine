@@ -15,17 +15,19 @@
  */
 package com.github.benmanes.caffeine.cache.issues;
 
+import static com.github.benmanes.caffeine.testing.Awaits.await;
 import static com.github.benmanes.caffeine.testing.FutureSubject.future;
 import static com.google.common.truth.Truth.assertWithMessage;
 import static java.time.ZoneOffset.UTC;
+import static java.util.Locale.US;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -44,7 +46,7 @@ import com.github.benmanes.caffeine.testing.FutureSubject;
 import com.google.common.util.concurrent.MoreExecutors;
 
 /**
- * Issue #30: Unexpected cache misses with <tt>expireAfterWrite</tt> using multiple keys.
+ * Issue #30: Unexpected cache misses with <code>expireAfterWrite</code> using multiple keys.
  * <p>
  * Prior to eviction, the cache must revalidate that the entry has expired. If the entry was updated
  * but the maintenance thread reads a stale value, then the entry may be prematurely expired. The
@@ -55,7 +57,6 @@ import com.google.common.util.concurrent.MoreExecutors;
  */
 @Test(groups = "isolated")
 @Listeners(CacheValidationListener.class)
-@SuppressWarnings("PreferJavaTimeOverload")
 public final class Issue30Test {
   private static final boolean DEBUG = false;
 
@@ -85,7 +86,7 @@ public final class Issue30Test {
     var source = new ConcurrentHashMap<String, String>();
     var lastLoad = new ConcurrentHashMap<String, Instant>();
     AsyncLoadingCache<String, String> cache = Caffeine.newBuilder()
-        .expireAfterWrite(TTL, TimeUnit.MILLISECONDS)
+        .expireAfterWrite(Duration.ofMillis(TTL))
         .executor(executor)
         .buildAsync(new Loader(source, lastLoad));
     return new Object[][] {{ cache, source, lastLoad }};
@@ -94,15 +95,14 @@ public final class Issue30Test {
   @Test(dataProvider = "params", invocationCount = 100, threadPoolSize = N_THREADS)
   public void expiration(AsyncLoadingCache<String, String> cache,
       ConcurrentMap<String, String> source, ConcurrentMap<String, Instant> lastLoad)
-          throws Exception {
+          throws InterruptedException {
     initialValues(cache, source, lastLoad);
     firstUpdate(cache, source);
     secondUpdate(cache, source);
   }
 
   private void initialValues(AsyncLoadingCache<String, String> cache,
-      ConcurrentMap<String, String> source, ConcurrentMap<String, Instant> lastLoad)
-          throws InterruptedException, ExecutionException {
+      ConcurrentMap<String, String> source, ConcurrentMap<String, Instant> lastLoad) {
     source.put(A_KEY, A_ORIGINAL);
     source.put(B_KEY, B_ORIGINAL);
     lastLoad.clear();
@@ -111,8 +111,9 @@ public final class Issue30Test {
     assertThat("should serve initial value", cache.get(B_KEY)).succeedsWith(B_ORIGINAL);
   }
 
+  @SuppressWarnings("PreferJavaTimeOverload")
   private void firstUpdate(AsyncLoadingCache<String, String> cache,
-      ConcurrentMap<String, String> source) throws InterruptedException, ExecutionException {
+      ConcurrentMap<String, String> source) throws InterruptedException {
     source.put(A_KEY, A_UPDATE_1);
     source.put(B_KEY, B_UPDATE_1);
 
@@ -125,11 +126,14 @@ public final class Issue30Test {
 
     Thread.sleep(TTL + EPSILON); // sleep until expiration
     assertThat("now serve first updated value", cache.get(A_KEY)).succeedsWith(A_UPDATE_1);
-    assertThat("now serve first updated value", cache.get(B_KEY)).succeedsWith(B_UPDATE_1);
+    await().untilAsserted(() -> {
+      assertThat("now serve first updated value", cache.get(B_KEY)).succeedsWith(B_UPDATE_1);
+    });
   }
 
+  @SuppressWarnings("PreferJavaTimeOverload")
   private void secondUpdate(AsyncLoadingCache<String, String> cache,
-      ConcurrentMap<String, String> source) throws Exception {
+      ConcurrentMap<String, String> source) throws InterruptedException {
     source.put(A_KEY, A_UPDATE_2);
     source.put(B_KEY, B_UPDATE_2);
 
@@ -146,7 +150,8 @@ public final class Issue30Test {
   }
 
   static final class Loader implements AsyncCacheLoader<String, String> {
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("hh:MM:ss.SSS");
+    private static final DateTimeFormatter FORMATTER =
+        DateTimeFormatter.ofPattern("hh:MM:ss.SSS", US);
 
     final ConcurrentMap<String, String> source;
     final ConcurrentMap<String, Instant> lastLoad;
@@ -162,6 +167,7 @@ public final class Issue30Test {
       return CompletableFuture.completedFuture(source.get(key));
     }
 
+    @SuppressWarnings("TimeZoneUsage")
     private void reportCacheMiss(String key) {
       Instant now = Instant.now();
       Instant last = lastLoad.get(key);

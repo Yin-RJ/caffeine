@@ -15,12 +15,14 @@
  */
 package com.github.benmanes.caffeine.cache.testing;
 
+import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 import java.io.InvalidObjectException;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,19 +33,20 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.Policy;
+import com.github.benmanes.caffeine.cache.Policy.CacheEntry;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheWeigher;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Expire;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.InitialCapacity;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Listener;
+import com.github.benmanes.caffeine.cache.testing.CacheSpec.Loader;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.Maximum;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.ReferenceType;
 import com.github.benmanes.caffeine.testing.Int;
@@ -56,18 +59,21 @@ import com.google.common.cache.RemovalListener;
 import com.google.common.cache.RemovalNotification;
 import com.google.common.cache.Weigher;
 import com.google.common.collect.ForwardingConcurrentMap;
+import com.google.common.collect.ForwardingSet;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.ExecutionError;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 
 /**
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@SuppressWarnings("PreferJavaTimeOverload")
+@SuppressWarnings("serial")
 public final class GuavaCacheFromContext {
   private GuavaCacheFromContext() {}
-  private static final ThreadLocal<Exception> error = new ThreadLocal<>();
+  private static final ThreadLocal<Throwable> error = new ThreadLocal<>();
 
   /** Returns a Guava-backed cache. */
   @SuppressWarnings("CheckReturnValue")
@@ -85,21 +91,21 @@ public final class GuavaCacheFromContext {
       builder.recordStats();
     }
     if (context.maximum() != Maximum.DISABLED) {
-      if (context.weigher() == CacheWeigher.DEFAULT) {
+      if (context.cacheWeigher() == CacheWeigher.DISABLED) {
         builder.maximumSize(context.maximum().max());
       } else {
-        builder.weigher(new GuavaWeigher<Object, Object>(context.weigher()));
+        builder.weigher(new GuavaWeigher<>(context.weigher()));
         builder.maximumWeight(context.maximumWeight());
       }
     }
     if (context.expiresAfterAccess()) {
-      builder.expireAfterAccess(context.expireAfterAccess().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.expireAfterAccess(context.expireAfterAccess().duration());
     }
     if (context.expiresAfterWrite()) {
-      builder.expireAfterWrite(context.expireAfterWrite().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.expireAfterWrite(context.expireAfterWrite().duration());
     }
     if (context.refreshes()) {
-      builder.refreshAfterWrite(context.refreshAfterWrite().timeNanos(), TimeUnit.NANOSECONDS);
+      builder.refreshAfterWrite(context.refreshAfterWrite().duration());
     }
     if (context.expires() || context.refreshes()) {
       builder.ticker(context.ticker());
@@ -114,23 +120,20 @@ public final class GuavaCacheFromContext {
     } else if (context.isSoftValues()) {
       builder.softValues();
     }
-    if (context.removalListenerType() != Listener.DEFAULT) {
+    if (context.removalListenerType() != Listener.DISABLED) {
       boolean translateZeroExpire = (context.expireAfterAccess() == Expire.IMMEDIATELY) ||
           (context.expireAfterWrite() == Expire.IMMEDIATELY);
       builder.removalListener(new GuavaRemovalListener<>(
           translateZeroExpire, context.removalListener()));
     }
-    if (context.loader() == null) {
-      context.cache = new GuavaCache<>(builder.<Int, Int>build(),
-          context.ticker(), context.isRecordingStats());
+    if (context.loader() == Loader.DISABLED) {
+      context.cache = new GuavaCache<>(builder.<Int, Int>build(), context);
     } else if (context.loader().isBulk()) {
       var loader = new BulkLoader<Int, Int>(context.loader());
-      context.cache = new GuavaLoadingCache<>(builder.build(loader),
-          context.ticker(), context.isRecordingStats());
+      context.cache = new GuavaLoadingCache<>(builder.build(loader), context);
     } else {
       var loader = new SingleLoader<Int, Int>(context.loader());
-      context.cache = new GuavaLoadingCache<>(builder.build(loader),
-          context.ticker(), context.isRecordingStats());
+      context.cache = new GuavaLoadingCache<>(builder.build(loader), context);
     }
     @SuppressWarnings("unchecked")
     Cache<K, V> castedCache = (Cache<K, V>) context.cache;
@@ -142,17 +145,20 @@ public final class GuavaCacheFromContext {
 
     private final com.google.common.cache.Cache<K, V> cache;
     private final boolean isRecordingStats;
+    private final boolean canSnapshot;
     private final Ticker ticker;
 
     transient ConcurrentMap<K, V> mapView;
     transient StatsCounter statsCounter;
     transient Policy<K, V> policy;
+    transient Set<K> keySet;
 
-    GuavaCache(com.google.common.cache.Cache<K, V> cache, Ticker ticker, boolean isRecordingStats) {
+    GuavaCache(com.google.common.cache.Cache<K, V> cache, CacheContext context) {
+      this.canSnapshot = context.expires() || context.refreshes();
+      this.isRecordingStats = context.isRecordingStats();
       this.statsCounter = new SimpleStatsCounter();
-      this.isRecordingStats = isRecordingStats;
       this.cache = requireNonNull(cache);
-      this.ticker = ticker;
+      this.ticker = context.ticker();
     }
 
     @Override
@@ -338,6 +344,7 @@ public final class GuavaCacheFromContext {
         }
       }
       @Override
+      @SuppressWarnings("CheckReturnValue")
       public V computeIfPresent(K key,
           BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
         requireNonNull(remappingFunction);
@@ -365,6 +372,7 @@ public final class GuavaCacheFromContext {
         }
       }
       @Override
+      @SuppressWarnings("CheckReturnValue")
       public V compute(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
         requireNonNull(remappingFunction);
         V oldValue = get(key);
@@ -421,13 +429,27 @@ public final class GuavaCacheFromContext {
         }
       }
       @Override
+      public Set<K> keySet() {
+        return (keySet == null) ? (keySet = new KeySetView()) : keySet;
+      }
+      @Override
       protected ConcurrentMap<K, V> delegate() {
         return cache.asMap();
       }
 
-      @SuppressWarnings({"UnusedVariable", "UnusedMethod"})
+      @SuppressWarnings({"UnusedMethod", "UnusedVariable"})
       private void readObject(ObjectInputStream stream) throws InvalidObjectException {
         statsCounter = new SimpleStatsCounter();
+      }
+
+      final class KeySetView extends ForwardingSet<K> {
+        @Override public boolean remove(Object o) {
+          requireNonNull(o);
+          return delegate().remove(o);
+        }
+        @Override protected Set<K> delegate() {
+          return cache.asMap().keySet();
+        }
       }
     }
 
@@ -436,10 +458,20 @@ public final class GuavaCacheFromContext {
         return isRecordingStats;
       }
       @Override public V getIfPresentQuietly(K key) {
+        checkNotNull(key);
         return cache.asMap().get(key);
       }
+      @Override public CacheEntry<K, V> getEntryIfPresentQuietly(K key) {
+        checkNotNull(key);
+        V value = cache.asMap().get(key);
+        if (value == null) {
+          return null;
+        }
+        long snapshotAt = canSnapshot ? ticker.read() : 0L;
+        return new GuavaCacheEntry<>(key, value, snapshotAt);
+      }
       @Override public Map<K, CompletableFuture<V>> refreshes() {
-        return Map.of();
+        return Collections.unmodifiableMap(Collections.emptyMap());
       }
       @Override public Optional<Eviction<K, V>> eviction() {
         return Optional.empty();
@@ -459,15 +491,13 @@ public final class GuavaCacheFromContext {
     }
   }
 
-  static class GuavaLoadingCache<K, V> extends GuavaCache<K, V>
-      implements LoadingCache<K, V>, Serializable {
+  static class GuavaLoadingCache<K, V> extends GuavaCache<K, V> implements LoadingCache<K, V> {
     private static final long serialVersionUID = 1L;
 
     private final com.google.common.cache.LoadingCache<K, V> cache;
 
-    GuavaLoadingCache(com.google.common.cache.LoadingCache<K, V> cache,
-        Ticker ticker, boolean isRecordingStats) {
-      super(cache, ticker, isRecordingStats);
+    GuavaLoadingCache(com.google.common.cache.LoadingCache<K, V> cache, CacheContext context) {
+      super(cache, context);
       this.cache = requireNonNull(cache);
     }
 
@@ -481,7 +511,7 @@ public final class GuavaCacheFromContext {
         }
         throw (RuntimeException) e.getCause();
       } catch (ExecutionException e) {
-        throw new CompletionException(e);
+        throw new CompletionException(e.getCause());
       } catch (ExecutionError e) {
         throw (Error) e.getCause();
       }
@@ -493,11 +523,18 @@ public final class GuavaCacheFromContext {
         return cache.getAll(keys);
       } catch (UncheckedExecutionException e) {
         if (e.getCause() instanceof CacheMissException) {
-          return Map.of();
+          var results = new LinkedHashMap<K, V>();
+          for (K key : keys) {
+            var value = cache.asMap().get(key);
+            if (value != null) {
+              results.put(key, value);
+            }
+          }
+          return Collections.unmodifiableMap(results);
         }
         throw (RuntimeException) e.getCause();
       } catch (ExecutionException e) {
-        throw new CompletionException(e);
+        throw new CompletionException(e.getCause());
       } catch (ExecutionError e) {
         throw (Error) e.getCause();
       }
@@ -511,6 +548,8 @@ public final class GuavaCacheFromContext {
       var e = error.get();
       if (e == null) {
         return CompletableFuture.completedFuture(cache.asMap().get(key));
+      } else if (e instanceof InterruptedException) {
+        throw new CompletionException(e);
       } else if (e instanceof CacheMissException) {
         return CompletableFuture.completedFuture(null);
       }
@@ -530,7 +569,8 @@ public final class GuavaCacheFromContext {
 
     CompletableFuture<Map<K, V>> composeResult(Map<K, CompletableFuture<V>> futures) {
       if (futures.isEmpty()) {
-        return CompletableFuture.completedFuture(Map.of());
+        return CompletableFuture.completedFuture(
+            Collections.unmodifiableMap(Collections.emptyMap()));
       }
       @SuppressWarnings("rawtypes")
       CompletableFuture<?>[] array = futures.values().toArray(new CompletableFuture[0]);
@@ -553,7 +593,7 @@ public final class GuavaCacheFromContext {
     final com.github.benmanes.caffeine.cache.Weigher<K, V> weigher;
 
     GuavaWeigher(com.github.benmanes.caffeine.cache.Weigher<K, V> weigher) {
-      this.weigher = weigher;
+      this.weigher = com.github.benmanes.caffeine.cache.Weigher.boundedWeigher(weigher);
     }
 
     @Override public int weigh(K key, V value) {
@@ -607,6 +647,22 @@ public final class GuavaCacheFromContext {
         throw e;
       }
     }
+
+    @Override
+    @SuppressWarnings("FutureReturnValueIgnored")
+    public ListenableFuture<V> reload(K key, V oldValue) throws Exception {
+      error.set(null);
+      var future = SettableFuture.<V>create();
+      delegate.asyncReload(key, oldValue, Runnable::run).whenComplete((r, e) -> {
+        if (e == null) {
+          future.set(r);
+        } else {
+          future.setException(e);
+          error.set(e);
+        }
+      });
+      return future;
+    }
   }
 
   static class BulkLoader<K, V> extends SingleLoader<K, V> {
@@ -617,12 +673,36 @@ public final class GuavaCacheFromContext {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Map<K, V> loadAll(Iterable<? extends K> keys) throws Exception {
       var keysToLoad = (keys instanceof Set) ? (Set<? extends K>) keys : ImmutableSet.copyOf(keys);
       @SuppressWarnings("unchecked")
       var loaded = (Map<K, V>) delegate.loadAll(keysToLoad);
       return loaded;
+    }
+  }
+
+  static final class GuavaCacheEntry<K, V>
+      extends SimpleImmutableEntry<K, V> implements CacheEntry<K, V> {
+    private static final long serialVersionUID = 1L;
+
+    private final long snapshot;
+
+    public GuavaCacheEntry(K key, V value, long snapshot) {
+      super(key, value);
+      this.snapshot = snapshot;
+    }
+
+    @Override public int weight() {
+      return 1;
+    }
+    @Override public long expiresAt() {
+      return snapshot + Long.MAX_VALUE;
+    }
+    @Override public long refreshableAt() {
+      return snapshot + Long.MAX_VALUE;
+    }
+    @Override public long snapshotAt() {
+      return snapshot;
     }
   }
 

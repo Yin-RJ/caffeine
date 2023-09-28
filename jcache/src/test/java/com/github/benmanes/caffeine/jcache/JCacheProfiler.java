@@ -15,11 +15,13 @@
  */
 package com.github.benmanes.caffeine.jcache;
 
+import static java.util.Locale.US;
 import static java.util.Objects.requireNonNull;
 
 import java.util.Random;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -30,6 +32,7 @@ import javax.cache.configuration.MutableConfiguration;
 import com.github.benmanes.caffeine.jcache.spi.CaffeineCachingProvider;
 import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * A hook for profiling the JCache adapter.
@@ -79,13 +82,13 @@ public final class JCacheProfiler {
     }
   }
 
-  @SuppressWarnings("FutureReturnValueIgnored")
-  private void scheduleStatusTask() {
+  @CanIgnoreReturnValue
+  private ScheduledFuture<?> scheduleStatusTask() {
     var stopwatch = Stopwatch.createStarted();
-    Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
+    return Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
       long count = this.count.longValue();
       long rate = count / stopwatch.elapsed(TimeUnit.SECONDS);
-      System.out.printf("%s - %,d [%,d / sec]%n", stopwatch, count, rate);
+      System.out.printf(US, "%s - %,d [%,d / sec]%n", stopwatch, count, rate);
     }, 5, 5, TimeUnit.SECONDS);
   }
 

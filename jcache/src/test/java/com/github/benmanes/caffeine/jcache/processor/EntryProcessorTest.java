@@ -16,19 +16,19 @@
 package com.github.benmanes.caffeine.jcache.processor;
 
 import static com.google.common.base.MoreObjects.firstNonNull;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.truth.Truth.assertThat;
 import static java.util.function.Function.identity;
-import static java.util.stream.Collectors.toMap;
+import static javax.cache.expiry.Duration.FIVE_MINUTES;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.OptionalLong;
-import java.util.concurrent.TimeUnit;
 
 import javax.cache.Cache;
 import javax.cache.expiry.CreatedExpiryPolicy;
-import javax.cache.expiry.Duration;
 import javax.cache.integration.CacheLoader;
 import javax.cache.integration.CacheLoaderException;
 import javax.cache.integration.CacheWriter;
@@ -39,13 +39,13 @@ import org.testng.annotations.Test;
 
 import com.github.benmanes.caffeine.jcache.AbstractJCacheTest;
 import com.github.benmanes.caffeine.jcache.configuration.CaffeineConfiguration;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Streams;
 
 /**
  * @author chrisstockton (Chris Stockton)
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@SuppressWarnings("PreferJavaTimeOverload")
 public final class EntryProcessorTest extends AbstractJCacheTest {
   private final Map<Integer, Integer> map = new HashMap<>();
 
@@ -62,7 +62,7 @@ public final class EntryProcessorTest extends AbstractJCacheTest {
   @Override
   protected CaffeineConfiguration<Integer, Integer> getConfiguration() {
     var config = new CaffeineConfiguration<Integer, Integer>();
-    config.setExpiryPolicyFactory(() -> new CreatedExpiryPolicy(Duration.FIVE_MINUTES));
+    config.setExpiryPolicyFactory(() -> new CreatedExpiryPolicy(FIVE_MINUTES));
     config.setCacheLoaderFactory(MapLoader::new);
     config.setCacheWriterFactory(MapWriter::new);
     config.setTickerFactory(() -> ticker::read);
@@ -74,30 +74,35 @@ public final class EntryProcessorTest extends AbstractJCacheTest {
 
   @Test
   public void reload() {
-    jcache.invoke(KEY_1, this::process);
+    var value1 = jcache.invoke(KEY_1, this::process);
     assertThat(loads).isEqualTo(1);
+    assertThat(value1).isNull();
 
-    ticker.advance(1, TimeUnit.MINUTES);
-    jcache.invoke(KEY_1, this::process);
+    ticker.advance(Duration.ofMinutes(1));
+    var value2 = jcache.invoke(KEY_1, this::process);
     assertThat(loads).isEqualTo(1);
+    assertThat(value2).isNull();
 
     // Expire the entry
-    ticker.advance(5, TimeUnit.MINUTES);
+    ticker.advance(Duration.ofMinutes(5));
 
-    jcache.invoke(KEY_1, this::process);
+    var value3 = jcache.invoke(KEY_1, this::process);
     assertThat(loads).isEqualTo(2);
+    assertThat(value3).isNull();
 
-    ticker.advance(1, TimeUnit.MINUTES);
-    jcache.invoke(KEY_1, this::process);
+    ticker.advance(Duration.ofMinutes(1));
+    var value4 = jcache.invoke(KEY_1, this::process);
     assertThat(loads).isEqualTo(2);
+    assertThat(value4).isNull();
   }
 
   @Test
   public void writeOccursForInitialLoadOfEntry() {
     map.put(KEY_1, 100);
-    jcache.invoke(KEY_1, this::process);
-    assertThat(loads).isEqualTo(1);
+    var value = jcache.invoke(KEY_1, this::process);
     assertThat(writes).isEqualTo(1);
+    assertThat(loads).isEqualTo(1);
+    assertThat(value).isNull();
   }
 
   private Object process(MutableEntry<Integer, Integer> entry, Object... arguments) {
@@ -139,8 +144,8 @@ public final class EntryProcessorTest extends AbstractJCacheTest {
     }
 
     @Override
-    public Map<Integer, Integer> loadAll(Iterable<? extends Integer> keys) {
-      return Streams.stream(keys).collect(toMap(identity(), this::load));
+    public ImmutableMap<Integer, Integer> loadAll(Iterable<? extends Integer> keys) {
+      return Streams.stream(keys).collect(toImmutableMap(identity(), this::load));
     }
   }
 }

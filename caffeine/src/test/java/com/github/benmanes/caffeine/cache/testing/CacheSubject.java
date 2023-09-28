@@ -17,20 +17,21 @@ package com.github.benmanes.caffeine.cache.testing;
 
 import static com.github.benmanes.caffeine.cache.LocalCacheSubject.syncLocal;
 import static com.github.benmanes.caffeine.cache.ReserializableSubject.syncReserializable;
+import static com.github.benmanes.caffeine.cache.testing.CacheSubject.CleanUpSubject.CLEANUP_FACTORY;
 import static com.github.benmanes.caffeine.testing.MapSubject.map;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.truth.OptionalLongSubject.optionalLongs;
 import static com.google.common.truth.Truth.assertAbout;
 
 import java.util.Map;
 import java.util.Objects;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Policy;
+import com.google.common.testing.GcFinalization;
 import com.google.common.truth.Correspondence;
 import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Ordered;
 import com.google.common.truth.Subject;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * Propositions for {@link Cache} subjects.
@@ -59,10 +60,13 @@ public final class CacheSubject extends Subject {
   /** Fails if the cache is not empty. */
   public void isEmpty() {
     check("cache").about(map()).that(actual.asMap()).isExhaustivelyEmpty();
-    if (actual.policy().eviction().filter(Policy.Eviction::isWeighted).isPresent()) {
-      hasWeightedSize(0);
-    }
     hasSize(0);
+
+    actual.policy().eviction().ifPresent(policy -> {
+      policy.weightedSize().ifPresent(weightedSize -> {
+        check("weightedSize()").that(weightedSize).isEqualTo(0);
+      });
+    });
   }
 
   /** Fails if the cache does not have the given size. */
@@ -89,6 +93,7 @@ public final class CacheSubject extends Subject {
   }
 
   /** Fails if the cache does not contain the given keys, where duplicate keys are ignored. */
+  @CanIgnoreReturnValue
   public Ordered containsExactlyKeys(Iterable<?> keys) {
     return check("containsKeys").about(map()).that(actual.asMap()).containsExactlyKeys(keys);
   }
@@ -129,15 +134,6 @@ public final class CacheSubject extends Subject {
         .containsExactlyEntriesIn(expectedMap);
   }
 
-  /** Fails if the cache does not have the given weighted size. */
-  public void hasWeightedSize(long expectedSize) {
-    checkArgument(expectedSize >= 0, "expectedSize (%s) must be >= 0", expectedSize);
-    var policy = actual.policy().eviction().orElseThrow(
-        () -> new AssertionError("Size eviction not enabled"));
-    check("weightedSize()").about(optionalLongs())
-        .that(policy.weightedSize()).hasValue(expectedSize);
-  }
-
   /** Fails if the cache is not correctly serialized. */
   public void isReserialize() {
     check("reserializable").about(syncReserializable()).that(actual).isReserialize();
@@ -148,6 +144,11 @@ public final class CacheSubject extends Subject {
     check("cache").about(syncLocal()).that(actual).isValid();
   }
 
+  /** Propositions for the cache's size after fully cleaned up. */
+  public CleanUpSubject whenCleanedUp() {
+    return check("cleanUp()").about(CLEANUP_FACTORY).that(actual);
+  }
+
   private static boolean tolerantEquals(Object o1, Object o2) {
     if ((o1 instanceof Integer) && (o2 instanceof Long)) {
       return ((Integer) o1).longValue() == ((Long) o2).longValue();
@@ -155,5 +156,39 @@ public final class CacheSubject extends Subject {
       return ((Long) o1).longValue() == ((Integer) o2).longValue();
     }
     return Objects.equals(o1, o2);
+  }
+
+  public static final class CleanUpSubject extends Subject {
+    static final Factory<CleanUpSubject, Cache<?, ?>> CLEANUP_FACTORY = CleanUpSubject::new;
+
+    private final Cache<?, ?> actual;
+
+    private CleanUpSubject(FailureMetadata metadata, Cache<?, ?> cache) {
+      super(metadata, cache.asMap());
+      this.actual = cache;
+    }
+
+    public void isEmpty() {
+      hasSize(0);
+      check("cache").about(cache()).that(actual).isEmpty();
+    }
+
+    public void hasSize(long expectedSize) {
+      // Ensures that all of the pending work is performed (Guava limits work per cycle)
+      for (int i = 0; i < 100; i++) {
+        if ((i > 0) && ((i % 10) == 0)) {
+          GcFinalization.awaitFullGc();
+        }
+        actual.cleanUp();
+
+        long size = actual.estimatedSize();
+        if (size == expectedSize) {
+          return;
+        } else if (size < expectedSize) {
+          failWithActual("After cleanup expected size to be at least", expectedSize);
+        }
+      }
+      check("cache").about(cache()).that(actual).hasSize(expectedSize);
+    }
   }
 }

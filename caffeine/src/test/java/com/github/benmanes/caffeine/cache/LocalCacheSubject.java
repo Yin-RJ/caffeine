@@ -30,16 +30,18 @@ import com.github.benmanes.caffeine.cache.BoundedLocalCache.BoundedLocalAsyncCac
 import com.github.benmanes.caffeine.cache.BoundedLocalCache.BoundedLocalAsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.BoundedLocalCache.BoundedLocalManualCache;
 import com.github.benmanes.caffeine.cache.LocalAsyncLoadingCache.LoadingCacheView;
+import com.github.benmanes.caffeine.cache.References.WeakKeyEqualsReference;
 import com.github.benmanes.caffeine.cache.References.WeakKeyReference;
 import com.github.benmanes.caffeine.cache.TimerWheel.Sentinel;
 import com.github.benmanes.caffeine.cache.UnboundedLocalCache.UnboundedLocalAsyncCache;
 import com.github.benmanes.caffeine.cache.UnboundedLocalCache.UnboundedLocalAsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.UnboundedLocalCache.UnboundedLocalManualCache;
-import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheWeigher;
+import com.github.benmanes.caffeine.cache.testing.Weighers;
 import com.google.common.collect.ImmutableTable;
 import com.google.common.collect.Sets;
 import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Subject;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * Propositions for {@link LocalCache}-based subjects.
@@ -67,7 +69,7 @@ public final class LocalCacheSubject extends Subject {
     return LocalCacheSubject::new;
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
+  @SuppressWarnings({"rawtypes", "unchecked"})
   public void isValid() {
     if (actual instanceof BoundedLocalCache<?, ?>) {
       var bounded = (BoundedLocalCache<Object, Object>) actual;
@@ -124,7 +126,7 @@ public final class LocalCacheSubject extends Subject {
     for (;;) {
       bounded.cleanUp();
 
-      if (bounded.buffersWrites() && (bounded.writeBuffer().size() > 0)) {
+      if (!bounded.writeBuffer.isEmpty()) {
         continue; // additional writes to drain
       } else if (bounded.evicts() && (bounded.adjustment() != adjustment)) {
         adjustment = bounded.adjustment();
@@ -250,7 +252,8 @@ public final class LocalCacheSubject extends Subject {
       var deques = new ImmutableTable.Builder<String, Long, LinkedDeque<Node<Object, Object>>>()
           .put("window", bounded.windowWeightedSize(), bounded.accessOrderWindowDeque())
           .put("probation", mainProbation, bounded.accessOrderProbationDeque())
-          .put("protected", bounded.mainProtectedWeightedSize(), bounded.accessOrderProtectedDeque())
+          .put("protected", bounded.mainProtectedWeightedSize(),
+              bounded.accessOrderProtectedDeque())
           .build();
       checkLinks(bounded, deques);
       check("accessOrderWindowDeque()").about(deque())
@@ -311,6 +314,7 @@ public final class LocalCacheSubject extends Subject {
     }
   }
 
+  @CanIgnoreReturnValue
   private long scanLinks(BoundedLocalCache<Object, Object> bounded,
       LinkedDeque<Node<Object, Object>> deque, Set<Node<Object, Object>> seen) {
     long weightedSize = 0;
@@ -341,7 +345,8 @@ public final class LocalCacheSubject extends Subject {
       if ((key != null) && (value != null)) {
         check("bounded").that(bounded).containsKey(key);
       }
-      check("keyReference").that(node.getKeyReference()).isInstanceOf(WeakKeyReference.class);
+      var clazz = node instanceof Interned ? WeakKeyEqualsReference.class : WeakKeyReference.class;
+      check("keyReference").that(node.getKeyReference()).isInstanceOf(clazz);
     } else {
       check("key").that(key).isNotNull();
     }
@@ -375,11 +380,11 @@ public final class LocalCacheSubject extends Subject {
     check("node.getWeight").that(node.getWeight()).isAtLeast(0);
 
     var weigher = bounded.weigher;
-    boolean canCheckWeight = (weigher == CacheWeigher.RANDOM);
+    boolean canCheckWeight = (weigher == Weighers.random());
     if (weigher instanceof AsyncWeigher) {
       @SuppressWarnings("rawtypes")
       var asyncWeigher = (AsyncWeigher) weigher;
-      canCheckWeight = (asyncWeigher.delegate == CacheWeigher.RANDOM);
+      canCheckWeight = (asyncWeigher.delegate == Weighers.random());
     }
     if (canCheckWeight) {
       check("node.getWeight()").that(node.getWeight()).isEqualTo(weigher.weigh(key, value));

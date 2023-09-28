@@ -17,7 +17,7 @@ package com.github.benmanes.caffeine.cache.simulator.policy.linked;
 
 import static java.util.Locale.US;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.toSet;
+import static java.util.stream.Collectors.toUnmodifiableSet;
 
 import java.util.Set;
 
@@ -30,7 +30,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -53,7 +52,7 @@ public final class FrequentlyUsedPolicy implements KeyOnlyPolicy {
   public FrequentlyUsedPolicy(Admission admission, EvictionPolicy policy, Config config) {
     BasicSettings settings = new BasicSettings(config);
     this.policyStats = new PolicyStats(admission.format(policy.label()));
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.admittor = admission.from(config, policyStats);
     this.data = new Long2ObjectOpenHashMap<>();
     this.policy = requireNonNull(policy);
@@ -65,7 +64,7 @@ public final class FrequentlyUsedPolicy implements KeyOnlyPolicy {
     BasicSettings settings = new BasicSettings(config);
     return settings.admission().stream().map(admission ->
       new FrequentlyUsedPolicy(admission, policy, config)
-    ).collect(toSet());
+    ).collect(toUnmodifiableSet());
   }
 
   @Override

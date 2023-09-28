@@ -63,7 +63,7 @@ final class EventTypeAwareListener<K, V> implements CacheEntryCreatedListener<K,
   }
 
   /** Processes the event and logs if an exception is thrown. */
-  @SuppressWarnings({"PMD.SwitchStmtsShouldHaveDefault", "CatchingUnchecked"})
+  @SuppressWarnings("PMD.SwitchStmtsShouldHaveDefault")
   public void dispatch(JCacheEntryEvent<K, V> event) {
     try {
       if (event.getSource().isClosed()) {
@@ -83,8 +83,9 @@ final class EventTypeAwareListener<K, V> implements CacheEntryCreatedListener<K,
           onExpired(event);
           return;
       }
-      throw new IllegalStateException("Unknown event type: " + event.getEventType());
-    } catch (Exception e) {
+      logger.log(Level.WARNING, "Unknown event type: {}",
+          event.getEventType(), new IllegalStateException());
+    } catch (RuntimeException e) {
       logger.log(Level.WARNING, "", e);
     } catch (Throwable t) {
       logger.log(Level.ERROR, "", t);

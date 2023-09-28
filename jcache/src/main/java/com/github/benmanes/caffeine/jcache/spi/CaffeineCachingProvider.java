@@ -39,13 +39,11 @@ import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 
 import com.github.benmanes.caffeine.jcache.CacheManagerImpl;
-import com.github.benmanes.caffeine.jcache.configuration.TypesafeConfigurator;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
-import com.typesafe.config.ConfigFactory;
 
 /**
- * A provider that produces a JCache implementation backed by Caffeine. Typically this provider is
- * instantiated using {@link Caching#getCachingProvider()}, which discovers this implementation
+ * A provider that produces a JCache implementation backed by Caffeine. Typically, this provider is
+ * instantiated using {@link Caching#getCachingProvider()} which discovers this implementation
  * through a {@link java.util.ServiceLoader}.
  * <p>
  * This provider is expected to be used for application life cycle events, like initialization. It
@@ -60,9 +58,9 @@ public final class CaffeineCachingProvider implements CachingProvider {
   private static final ClassLoader DEFAULT_CLASS_LOADER = new JCacheClassLoader();
 
   @GuardedBy("itself")
-  private final Map<ClassLoader, Map<URI, CacheManager>> cacheManagers;
+  final Map<ClassLoader, Map<URI, CacheManager>> cacheManagers;
 
-  private boolean isOsgiComponent;
+  boolean isOsgiComponent;
 
   public CaffeineCachingProvider() {
     this.cacheManagers = new WeakHashMap<>(1);
@@ -103,7 +101,8 @@ public final class CaffeineCachingProvider implements CachingProvider {
           managerClassLoader, any -> new HashMap<>());
       return cacheManagersByURI.computeIfAbsent(managerURI, any -> {
         Properties managerProperties = (properties == null) ? getDefaultProperties() : properties;
-        return new CacheManagerImpl(this, managerURI, managerClassLoader, managerProperties);
+        return new CacheManagerImpl(this, isOsgiComponent,
+            managerURI, managerClassLoader, managerProperties);
       });
     }
   }
@@ -198,7 +197,11 @@ public final class CaffeineCachingProvider implements CachingProvider {
       if ((parentClassLoader != null)
           && (parentClassLoader != classClassLoader)
           && (parentClassLoader != contextClassLoader)) {
-        return parentClassLoader.loadClass(name);
+        try {
+          return parentClassLoader.loadClass(name);
+        } catch (ClassNotFoundException e) {
+          error = e;
+        }
       }
       throw (error == null) ? new ClassNotFoundException(name) : error;
     }
@@ -225,7 +228,10 @@ public final class CaffeineCachingProvider implements CachingProvider {
       if ((parentClassLoader != null)
           && (parentClassLoader != classClassLoader)
           && (parentClassLoader != contextClassLoader)) {
-        return parentClassLoader.getResource(name);
+        URL resource = parentClassLoader.getResource(name);
+        if (resource != null) {
+          return resource;
+        }
       }
 
       return null;
@@ -260,10 +266,5 @@ public final class CaffeineCachingProvider implements CachingProvider {
   @SuppressWarnings("unused")
   private void activate() {
     isOsgiComponent = true;
-    TypesafeConfigurator.setConfigSource(() -> ConfigFactory.load(DEFAULT_CLASS_LOADER));
-  }
-
-  public boolean isOsgiComponent() {
-    return isOsgiComponent;
   }
 }

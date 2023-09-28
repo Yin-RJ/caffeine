@@ -20,6 +20,7 @@ import static com.github.benmanes.caffeine.cache.Specifications.PACKAGE_NAME;
 import static com.github.benmanes.caffeine.cache.Specifications.kTypeVar;
 import static com.github.benmanes.caffeine.cache.Specifications.vTypeVar;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Locale.US;
 import static org.apache.commons.lang3.StringUtils.capitalize;
 
 import java.lang.invoke.VarHandle;
@@ -58,7 +59,7 @@ public abstract class NodeRule implements Consumer<NodeContext> {
     }
   }
 
-  /** @return if the rule should be executed. */
+  /** Returns if the rule should be executed. */
   protected abstract boolean applies();
 
   protected abstract void execute();
@@ -67,10 +68,12 @@ public abstract class NodeRule implements Consumer<NodeContext> {
     return context.superClass.equals(TypeName.OBJECT);
   }
 
+  @SuppressWarnings("NullAway")
   protected Strength keyStrength() {
     return strengthOf(Iterables.get(context.generateFeatures, 0));
   }
 
+  @SuppressWarnings("NullAway")
   protected Strength valueStrength() {
     return strengthOf(Iterables.get(context.generateFeatures, 1));
   }
@@ -118,7 +121,7 @@ public abstract class NodeRule implements Consumer<NodeContext> {
 
   /** Creates an accessor that returns the reference. */
   protected final MethodSpec newGetRef(String varName) {
-    MethodSpec.Builder getter = MethodSpec.methodBuilder("get" + capitalize(varName) + "Reference")
+    var getter = MethodSpec.methodBuilder("get" + capitalize(varName) + "Reference")
         .addModifiers(context.publicFinalModifiers())
         .returns(Object.class);
     getter.addStatement("return $L.get(this)", varHandleName(varName));
@@ -128,26 +131,31 @@ public abstract class NodeRule implements Consumer<NodeContext> {
   /** Creates an accessor that returns the unwrapped variable. */
   protected final MethodSpec newGetter(Strength strength, TypeName varType,
       String varName, Visibility visibility) {
-    MethodSpec.Builder getter = MethodSpec.methodBuilder("get" + capitalize(varName))
+    var getter = MethodSpec.methodBuilder("get" + capitalize(varName))
         .addModifiers(context.publicFinalModifiers())
         .returns(varType);
     if (strength == Strength.STRONG) {
-      if (visibility.isPlain) {
-        if (varType.isPrimitive()) {
-          getter.addStatement("return ($L) $L.get(this)",
-              varType.toString(), varHandleName(varName));
-        } else {
-          getter.addStatement("return ($T) $L.get(this)", varType, varHandleName(varName));
-        }
-      } else {
+      if (visibility == Visibility.PLAIN) {
+        var template = String.format(US, "return (%s) $L.get(this)",
+            varType.isPrimitive() ? "$L" : "$T");
+        getter.addStatement(template, varType, varHandleName(varName));
+      } else if (visibility == Visibility.OPAQUE) {
+        var template = String.format(US, "return (%s) $L.getOpaque(this)",
+            varType.isPrimitive() ? "$L" : "$T");
+        getter.addStatement(template, varType, varHandleName(varName));
+      } else if (visibility == Visibility.VOLATILE) {
         getter.addStatement("return $N", varName);
+      } else {
+        throw new IllegalArgumentException();
       }
     } else {
-      if (visibility.isPlain) {
+      if (visibility == Visibility.PLAIN) {
         getter.addStatement("return (($T<$T>) $L.get(this)).get()",
             Reference.class, varType, varHandleName(varName));
-      } else {
+      } else if (visibility == Visibility.VOLATILE) {
         getter.addStatement("return $N.get()", varName);
+      } else {
+        throw new IllegalArgumentException();
       }
     }
     return getter.build();
@@ -156,19 +164,23 @@ public abstract class NodeRule implements Consumer<NodeContext> {
   /** Creates a mutator to the variable. */
   protected final MethodSpec newSetter(TypeName varType, String varName, Visibility visibility) {
     String methodName = "set" + Character.toUpperCase(varName.charAt(0)) + varName.substring(1);
-    MethodSpec.Builder setter = MethodSpec.methodBuilder(methodName)
+    var setter = MethodSpec.methodBuilder(methodName)
         .addModifiers(context.publicFinalModifiers())
         .addParameter(varType, varName);
-    if (visibility.isPlain) {
+    if (visibility == Visibility.PLAIN) {
       setter.addStatement("$L.set(this, $N)", varHandleName(varName), varName);
-    } else {
+    } else if (visibility == Visibility.OPAQUE) {
+      setter.addStatement("$L.setOpaque(this, $N)", varHandleName(varName), varName);
+    } else if (visibility == Visibility.VOLATILE) {
       setter.addStatement("this.$N = $N", varName, varName);
+    } else {
+      throw new IllegalArgumentException();
     }
     return setter.build();
   }
 
   private Strength strengthOf(Feature feature) {
-    for (Strength strength : Strength.values()) {
+    for (var strength : Strength.values()) {
       if (feature.name().startsWith(strength.name())) {
         return strength;
       }
@@ -181,12 +193,6 @@ public abstract class NodeRule implements Consumer<NodeContext> {
   }
 
   protected enum Visibility {
-    IMMEDIATE(false), PLAIN(true);
-
-    final boolean isPlain;
-
-    Visibility(boolean mode) {
-      this.isPlain = mode;
-    }
+    PLAIN, OPAQUE, VOLATILE
   }
 }

@@ -15,9 +15,12 @@
  */
 package com.github.benmanes.caffeine.cache.local;
 
+import static com.github.benmanes.caffeine.cache.Specifications.ASYNC_CACHE_LOADER_PARAM;
+import static com.github.benmanes.caffeine.cache.Specifications.LOCAL_CACHE_FACTORY;
 import static com.github.benmanes.caffeine.cache.Specifications.BOUNDED_LOCAL_CACHE;
 import static com.github.benmanes.caffeine.cache.Specifications.BUILDER_PARAM;
-import static com.github.benmanes.caffeine.cache.Specifications.CACHE_LOADER_PARAM;
+import javax.lang.model.element.Modifier;
+import com.squareup.javapoet.FieldSpec;
 
 /**
  * Adds the constructor to the cache.
@@ -33,13 +36,19 @@ public final class AddConstructor extends LocalCacheRule {
 
   @Override
   protected void execute() {
-    String cacheLoader = context.superClass.equals(BOUNDED_LOCAL_CACHE)
-        ? "(CacheLoader<K, V>) cacheLoader"
-        : "cacheLoader";
     context.constructor
         .addParameter(BUILDER_PARAM)
-        .addParameter(CACHE_LOADER_PARAM)
-        .addParameter(boolean.class, "async")
-        .addStatement("super(builder, $L, async)", cacheLoader);
+        .addParameter(ASYNC_CACHE_LOADER_PARAM)
+        .addParameter(boolean.class, "async");
+    if (context.superClass.equals(BOUNDED_LOCAL_CACHE)) {
+      context.suppressedWarnings.add("unchecked");
+      context.constructor.addStatement(
+          "super(builder, (AsyncCacheLoader<K, V>) cacheLoader, async)");
+    } else {
+      context.constructor.addStatement("super(builder, cacheLoader, async)");
+    }
+    context.cache
+        .addField(FieldSpec.builder(LOCAL_CACHE_FACTORY, "FACTORY", Modifier.STATIC, Modifier.FINAL)
+            .initializer("$N::new", context.className).build());
   }
 }

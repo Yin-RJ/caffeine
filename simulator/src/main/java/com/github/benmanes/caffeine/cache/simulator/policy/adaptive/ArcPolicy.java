@@ -22,7 +22,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -34,7 +33,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  * being monitored (B1, B2). The maximum size of the T1 and T2 queues is adjusted dynamically based
  * on the workload patterns and effectiveness of the cache.
  * <p>
- * This implementation is based on the pseudo code provided by the authors in their paper
+ * This implementation is based on the pseudocode provided by the authors in their paper
  * <a href="http://www.cs.cmu.edu/~15-440/READINGS/megiddo-computer2004.pdf">Outperforming LRU with
  * an Adaptive Replacement Cache Algorithm</a> and is further described in their paper,
  * <a href="https://www.usenix.org/event/fast03/tech/full_papers/megiddo/megiddo.pdf">ARC: A
@@ -74,7 +73,7 @@ public final class ArcPolicy implements KeyOnlyPolicy {
 
   public ArcPolicy(Config config) {
     BasicSettings settings = new BasicSettings(config);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.policyStats = new PolicyStats(name());
     this.data = new Long2ObjectOpenHashMap<>();
     this.headT1 = new Node();
@@ -263,7 +262,6 @@ public final class ArcPolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
       prev.next = next;
       next.prev = prev;
       prev = next = null;

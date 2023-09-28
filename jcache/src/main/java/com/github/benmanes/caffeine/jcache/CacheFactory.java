@@ -17,6 +17,7 @@ package com.github.benmanes.caffeine.jcache;
 
 import static java.util.Objects.requireNonNull;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -54,25 +55,26 @@ final class CacheFactory {
   private CacheFactory() {}
 
   /**
-   * Returns a if the cache definition is found in the external settings file.
+   * Returns if the cache definition is found in the external settings file.
    *
+   * @param cacheManager the owner
    * @param cacheName the name of the cache
    * @return {@code true} if a definition exists
    */
-  public static boolean isDefinedExternally(String cacheName) {
-    return TypesafeConfigurator.cacheNames(rootConfig()).contains(cacheName);
+  public static boolean isDefinedExternally(CacheManager cacheManager, String cacheName) {
+    return TypesafeConfigurator.cacheNames(rootConfig(cacheManager)).contains(cacheName);
   }
 
   /**
    * Returns a newly created cache instance if a definition is found in the external settings file.
    *
-   * @param cacheManager the owner of the cache instance
+   * @param cacheManager the owner
    * @param cacheName the name of the cache
    * @return a new cache instance or null if the named cache is not defined in the settings file
    */
   public static @Nullable <K, V> CacheProxy<K, V> tryToCreateFromExternalSettings(
       CacheManager cacheManager, String cacheName) {
-    return TypesafeConfigurator.<K, V>from(rootConfig(), cacheName)
+    return TypesafeConfigurator.<K, V>from(rootConfig(cacheManager), cacheName)
         .map(configuration -> createCache(cacheManager, cacheName, configuration))
         .orElse(null);
   }
@@ -87,24 +89,25 @@ final class CacheFactory {
    */
   public static <K, V> CacheProxy<K, V> createCache(CacheManager cacheManager,
       String cacheName, Configuration<K, V> configuration) {
-    CaffeineConfiguration<K, V> config = resolveConfigurationFor(configuration);
+    CaffeineConfiguration<K, V> config = resolveConfigurationFor(cacheManager, configuration);
     return new Builder<>(cacheManager, cacheName, config).build();
   }
 
   /** Returns the resolved configuration. */
-  private static Config rootConfig() {
-    return requireNonNull(TypesafeConfigurator.configSource().get());
+  private static Config rootConfig(CacheManager cacheManager) {
+    return requireNonNull(TypesafeConfigurator.configSource().get(
+        cacheManager.getURI(), cacheManager.getClassLoader()));
   }
 
   /** Copies the configuration and overlays it on top of the default settings. */
   @SuppressWarnings("PMD.AccessorMethodGeneration")
   private static <K, V> CaffeineConfiguration<K, V> resolveConfigurationFor(
-      Configuration<K, V> configuration) {
+      CacheManager cacheManager, Configuration<K, V> configuration) {
     if (configuration instanceof CaffeineConfiguration<?, ?>) {
       return new CaffeineConfiguration<>((CaffeineConfiguration<K, V>) configuration);
     }
 
-    CaffeineConfiguration<K, V> template = TypesafeConfigurator.defaults(rootConfig());
+    CaffeineConfiguration<K, V> template = TypesafeConfigurator.defaults(rootConfig(cacheManager));
     if (configuration instanceof CompleteConfiguration<?, ?>) {
       CompleteConfiguration<K, V> complete = (CompleteConfiguration<K, V>) configuration;
       template.setReadThrough(complete.isReadThrough());
@@ -209,7 +212,12 @@ final class CacheFactory {
 
     /** Creates a cache that reads through on a cache miss. */
     private CacheProxy<K, V> newLoadingCacheProxy() {
-      CacheLoader<K, V> cacheLoader = config.getCacheLoaderFactory().create();
+      var factory = config.getCacheLoaderFactory();
+      if (factory == null) {
+        throw new IllegalStateException();
+      }
+
+      CacheLoader<K, V> cacheLoader = factory.create();
       JCacheLoaderAdapter<K, V> adapter = new JCacheLoaderAdapter<>(
           cacheLoader, dispatcher, expiryPolicy, ticker, statistics);
       CacheProxy<K, V> cache = new LoadingCacheProxy<>(cacheName, executor, cacheManager, config,
@@ -239,47 +247,44 @@ final class CacheFactory {
       return config.getMaximumWeight().isPresent();
     }
 
-    /** Configures the write expiration and returns if set. */
-    @SuppressWarnings("PreferJavaTimeOverload")
+    /** Configures write expiration and returns if set. */
     private boolean configureExpireAfterWrite() {
-      if (config.getExpireAfterWrite().isPresent()) {
-        caffeine.expireAfterWrite(config.getExpireAfterWrite().getAsLong(), TimeUnit.NANOSECONDS);
-        return true;
+      if (config.getExpireAfterWrite().isEmpty()) {
+        return false;
       }
-      return false;
+      caffeine.expireAfterWrite(Duration.ofNanos(config.getExpireAfterWrite().getAsLong()));
+      return true;
     }
 
-    /** Configures the access expiration and returns if set. */
-    @SuppressWarnings("PreferJavaTimeOverload")
+    /** Configures access expiration and returns if set. */
     private boolean configureExpireAfterAccess() {
-      if (config.getExpireAfterAccess().isPresent()) {
-        caffeine.expireAfterAccess(config.getExpireAfterAccess().getAsLong(), TimeUnit.NANOSECONDS);
-        return true;
+      if (config.getExpireAfterAccess().isEmpty()) {
+        return false;
       }
-      return false;
+      caffeine.expireAfterAccess(Duration.ofNanos(config.getExpireAfterAccess().getAsLong()));
+      return true;
     }
 
     /** Configures the custom expiration and returns if set. */
     private boolean configureExpireVariably() {
-      if (config.getExpiryFactory().isPresent()) {
-        caffeine.expireAfter(new ExpiryAdapter<>(config.getExpiryFactory().get().create()));
-        return true;
+      if (config.getExpiryFactory().isEmpty()) {
+        return false;
       }
-      return false;
+      caffeine.expireAfter(new ExpiryAdapter<>(config.getExpiryFactory().orElseThrow().create()));
+      return true;
     }
 
     private boolean configureJCacheExpiry() {
-      if (!(expiryPolicy instanceof EternalExpiryPolicy)) {
-        caffeine.expireAfter(new ExpirableToExpiry<>(ticker));
-        return true;
+      if (expiryPolicy instanceof EternalExpiryPolicy) {
+        return false;
       }
-      return false;
+      caffeine.expireAfter(new ExpirableToExpiry<>(ticker));
+      return true;
     }
 
-    @SuppressWarnings("PreferJavaTimeOverload")
     private void configureRefreshAfterWrite() {
       if (config.getRefreshAfterWrite().isPresent()) {
-        caffeine.refreshAfterWrite(config.getRefreshAfterWrite().getAsLong(), TimeUnit.NANOSECONDS);
+        caffeine.refreshAfterWrite(Duration.ofNanos(config.getRefreshAfterWrite().getAsLong()));
       }
     }
   }

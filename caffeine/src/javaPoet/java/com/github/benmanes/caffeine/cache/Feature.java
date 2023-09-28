@@ -15,12 +15,15 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static java.util.stream.Collectors.joining;
+
+import java.util.Collections;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 import com.google.common.base.CaseFormat;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 
 /**
  * The features that may be code generated.
@@ -46,22 +49,18 @@ public enum Feature {
   LISTENING,
   STATS;
 
-  public static String makeEnumName(Iterable<Feature> features) {
-    return StreamSupport.stream(features.spliterator(), false)
-        .map(Feature::name)
-        .collect(Collectors.joining("_"));
-  }
+  private static final ImmutableSet<Feature> fastPathIncompatible = Sets.immutableEnumSet(
+      Feature.EXPIRE_ACCESS, Feature.WEAK_KEYS, Feature.INFIRM_VALUES,
+      Feature.WEAK_VALUES, Feature.SOFT_VALUES);
 
   public static String makeEnumName(String enumName) {
     return CaseFormat.UPPER_CAMEL.to(CaseFormat.UPPER_UNDERSCORE, enumName);
   }
 
   public static String makeClassName(Iterable<Feature> features) {
-    String enumName = makeEnumName(features);
-    return makeClassName(enumName);
-  }
-
-  public static String makeClassName(String enumName) {
+    String enumName = Streams.stream(features)
+        .map(Feature::name)
+        .collect(joining("_"));
     return CaseFormat.UPPER_UNDERSCORE.to(CaseFormat.UPPER_CAMEL, enumName);
   }
 
@@ -78,14 +77,6 @@ public enum Feature {
   public static boolean usesAccessOrderMainDeque(Set<Feature> features) {
     return features.contains(Feature.MAXIMUM_SIZE)
         || features.contains(Feature.MAXIMUM_WEIGHT);
-  }
-
-  public static boolean usesWriteQueue(Set<Feature> features) {
-    return features.contains(Feature.MAXIMUM_SIZE)
-        || features.contains(Feature.MAXIMUM_WEIGHT)
-        || features.contains(Feature.EXPIRE_ACCESS)
-        || features.contains(Feature.EXPIRE_WRITE)
-        || features.contains(Feature.REFRESH_WRITE);
   }
 
   public static boolean useWriteTime(Set<Feature> features) {
@@ -110,8 +101,6 @@ public enum Feature {
   }
 
   public static boolean usesFastPath(Set<Feature> features) {
-    Set<Feature> incompatible = Sets.immutableEnumSet(Feature.EXPIRE_ACCESS,
-        Feature.WEAK_KEYS, Feature.INFIRM_VALUES, Feature.WEAK_VALUES, Feature.SOFT_VALUES);
-    return features.stream().noneMatch(incompatible::contains) && usesMaximum(features);
+    return Collections.disjoint(features, fastPathIncompatible) && usesMaximum(features);
   }
 }

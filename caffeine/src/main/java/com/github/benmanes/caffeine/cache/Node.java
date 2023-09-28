@@ -15,6 +15,8 @@
  */
 package com.github.benmanes.caffeine.cache;
 
+import static java.util.Locale.US;
+
 import java.lang.ref.ReferenceQueue;
 
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -30,7 +32,6 @@ import com.google.errorprone.annotations.concurrent.GuardedBy;
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
-@SuppressWarnings({"GuardedByChecker", "GuardedByValidator"})
 abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K, V>> {
 
   /** Return the key or {@code null} if it has been reclaimed by the garbage collector. */
@@ -53,10 +54,7 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
    */
   public abstract Object getValueReference();
 
-  /**
-   * Sets the value, which may be held strongly, weakly, or softly. This update may be set lazily
-   * and rely on the memory fence when the lock is released.
-   */
+  /** Sets the value, which may be held strongly, weakly, or softly. */
   @GuardedBy("this")
   public abstract void setValue(V value, @Nullable ReferenceQueue<V> referenceQueue);
 
@@ -79,13 +77,13 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
 
   /** Returns the weight of this entry from the policy's perspective. */
   @NonNegative
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public int getPolicyWeight() {
     return 1;
   }
 
   /** Sets the weight from the policy's perspective. */
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setPolicyWeight(@NonNegative int weight) {}
 
   /* --------------- Health --------------- */
@@ -133,22 +131,22 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
     throw new UnsupportedOperationException();
   }
 
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public Node<K, V> getPreviousInVariableOrder() {
     throw new UnsupportedOperationException();
   }
 
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setPreviousInVariableOrder(@Nullable Node<K, V> prev) {
     throw new UnsupportedOperationException();
   }
 
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public Node<K, V> getNextInVariableOrder() {
     throw new UnsupportedOperationException();
   }
 
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setNextInVariableOrder(@Nullable Node<K, V> prev) {
     throw new UnsupportedOperationException();
   }
@@ -156,8 +154,8 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
   /* --------------- Access order --------------- */
 
   public static final int WINDOW = 0;
-  public static final  int PROBATION = 1;
-  public static final  int PROTECTED = 2;
+  public static final int PROBATION = 1;
+  public static final int PROTECTED = 2;
 
   /** Returns if the entry is in the Window or Main space. */
   public boolean inWindow() {
@@ -211,25 +209,25 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
   public void setAccessTime(long time) {}
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public @Nullable Node<K, V> getPreviousInAccessOrder() {
     return null;
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setPreviousInAccessOrder(@Nullable Node<K, V> prev) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public @Nullable Node<K, V> getNextInAccessOrder() {
     return null;
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setNextInAccessOrder(@Nullable Node<K, V> next) {
     throw new UnsupportedOperationException();
   }
@@ -242,13 +240,13 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
   }
 
   /**
-   * Sets the write time in nanoseconds. This update may be set lazily and rely on the memory fence
+   * Sets the write-time in nanoseconds. This update may be set lazily and rely on the memory fence
    * when the lock is released.
    */
   public void setWriteTime(long time) {}
 
   /**
-   * Atomically sets the write time to the given updated value if the current value equals the
+   * Atomically sets the write-time to the given updated value if the current value equals the
    * expected value and returns if the update was successful.
    */
   public boolean casWriteTime(long expect, long update) {
@@ -256,32 +254,33 @@ abstract class Node<K, V> implements AccessOrder<Node<K, V>>, WriteOrder<Node<K,
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public @Nullable Node<K, V> getPreviousInWriteOrder() {
     return null;
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setPreviousInWriteOrder(@Nullable Node<K, V> prev) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public @Nullable Node<K, V> getNextInWriteOrder() {
     return null;
   }
 
   @Override
-  @GuardedBy("evictionLock")
+  // @GuardedBy("evictionLock")
   public void setNextInWriteOrder(@Nullable Node<K, V> next) {
     throw new UnsupportedOperationException();
   }
 
   @Override
+  @SuppressWarnings("GuardedBy")
   public final String toString() {
-    return String.format("%s=[key=%s, value=%s, weight=%d, queueType=%,d, accessTimeNS=%,d, "
+    return String.format(US, "%s=[key=%s, value=%s, weight=%d, queueType=%,d, accessTimeNS=%,d, "
         + "writeTimeNS=%,d, varTimeNs=%,d, prevInAccess=%s, nextInAccess=%s, prevInWrite=%s, "
         + "nextInWrite=%s]", getClass().getSimpleName(), getKey(), getValue(), getWeight(),
         getQueueType(), getAccessTime(), getWriteTime(), getVariableTime(),

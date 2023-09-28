@@ -18,15 +18,16 @@ package com.github.benmanes.caffeine.guava;
 import java.lang.reflect.Method;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.BulkLoader;
-import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.SingleLoader;
+import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.ExternalBulkLoader;
+import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.ExternalSingleLoader;
+import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.InternalBulkLoader;
+import com.github.benmanes.caffeine.guava.CaffeinatedGuavaLoadingCache.InternalSingleLoader;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-import com.google.errorprone.annotations.CheckReturnValue;
 
 /**
- * An adapter to expose a Caffeine cache through the Guava interfaces.
+ * Static utility methods pertaining to adapting between Caffeine and Guava cache interfaces.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
@@ -40,7 +41,6 @@ public final class CaffeinatedGuava {
    * @param builder the configured cache builder
    * @return a cache exposed under the Guava APIs
    */
-  @CheckReturnValue
   public static <K, V, K1 extends K, V1 extends V> Cache<K1, V1> build(Caffeine<K, V> builder) {
     return new CaffeinatedGuavaCache<>(builder.build());
   }
@@ -52,14 +52,11 @@ public final class CaffeinatedGuava {
    * @param loader the cache loader used to obtain new values
    * @return a cache exposed under the Guava APIs
    */
-  @CheckReturnValue
   public static <K, V, K1 extends K, V1 extends V> LoadingCache<K1, V1> build(
       Caffeine<K, V> builder, CacheLoader<? super K1, V1> loader) {
-    @SuppressWarnings("unchecked")
-    CacheLoader<K1, V1> castedLoader = (CacheLoader<K1, V1>) loader;
-    return build(builder, hasLoadAll(castedLoader)
-        ? new BulkLoader<>(castedLoader)
-        : new SingleLoader<>(castedLoader));
+    return build(builder, hasLoadAll(loader)
+        ? new InternalBulkLoader<>(loader)
+        : new InternalSingleLoader<>(loader));
   }
 
   /**
@@ -69,11 +66,23 @@ public final class CaffeinatedGuava {
    * @param loader the cache loader used to obtain new values
    * @return a cache exposed under the Guava APIs
    */
-  @CheckReturnValue
   public static <K, V, K1 extends K, V1 extends V> LoadingCache<K1, V1> build(
       Caffeine<K, V> builder,
       com.github.benmanes.caffeine.cache.CacheLoader<? super K1, V1> loader) {
     return new CaffeinatedGuavaLoadingCache<>(builder.build(loader));
+  }
+
+  /**
+   * Returns a Caffeine cache loader that delegates to a Guava cache loader.
+   *
+   * @param loader the cache loader used to obtain new values
+   * @return a cache loader exposed under the Caffeine APIs
+   */
+  public static <K, V> com.github.benmanes.caffeine.cache.CacheLoader<K, V> caffeinate(
+      CacheLoader<K, V> loader) {
+    return hasLoadAll(loader)
+        ? new ExternalBulkLoader<>(loader)
+        : new ExternalSingleLoader<>(loader);
   }
 
   static boolean hasLoadAll(CacheLoader<?, ?> cacheLoader) {

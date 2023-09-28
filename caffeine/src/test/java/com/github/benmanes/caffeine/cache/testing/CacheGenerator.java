@@ -15,18 +15,16 @@
  */
 package com.github.benmanes.caffeine.cache.testing;
 
-import static com.google.common.collect.ImmutableSet.toImmutableSet;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
+import org.mockito.Mockito;
+
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.testing.CacheSpec.Advance;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheExecutor;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheExpiry;
 import com.github.benmanes.caffeine.cache.testing.CacheSpec.CacheScheduler;
@@ -44,7 +42,6 @@ import com.github.benmanes.caffeine.cache.testing.CacheSpec.Stats;
 import com.github.benmanes.caffeine.testing.Int;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 /**
@@ -53,21 +50,23 @@ import com.google.common.collect.Sets;
  * @author ben.manes@gmail.com (Ben Manes)
  */
 public final class CacheGenerator {
-  private static final List<Map.Entry<Int, Int>> INTS = makeInts();
+  private static final ImmutableList<Map.Entry<Int, Int>> INTS = makeInts();
   private static final int BASE = 1_000;
 
   private final Options options;
   private final CacheSpec cacheSpec;
   private final boolean isAsyncOnly;
   private final boolean isLoadingOnly;
+  private final boolean isGuavaCompatible;
 
   public CacheGenerator(CacheSpec cacheSpec) {
     this(cacheSpec, Options.fromSystemProperties(),
-        /* isLoadingOnly */ false, /* isAsyncOnly */ false);
+        /* isLoadingOnly */ false, /* isAsyncOnly */ false, /* isGuavaCompatible */ true);
   }
 
   public CacheGenerator(CacheSpec cacheSpec, Options options,
-      boolean isLoadingOnly, boolean isAsyncOnly) {
+      boolean isLoadingOnly, boolean isAsyncOnly, boolean isGuavaCompatible) {
+    this.isGuavaCompatible = isGuavaCompatible;
     this.isLoadingOnly = isLoadingOnly;
     this.isAsyncOnly = isAsyncOnly;
     this.cacheSpec = cacheSpec;
@@ -87,8 +86,10 @@ public final class CacheGenerator {
   }
 
   /** Returns the Cartesian set of the possible cache configurations. */
+  @SuppressWarnings("IdentityConversion")
   private Set<List<Object>> combinations() {
-    var asyncLoading = ImmutableSet.of(true, false);
+    var asyncLoader = ImmutableSet.of(true, false);
+    var loaders = ImmutableSet.copyOf(cacheSpec.loader());
     var keys = filterTypes(options.keys(), cacheSpec.keys());
     var values = filterTypes(options.values(), cacheSpec.values());
     var statistics = filterTypes(options.stats(), cacheSpec.stats());
@@ -99,15 +100,17 @@ public final class CacheGenerator {
       values = values.contains(ReferenceType.STRONG)
           ? ImmutableSet.of(ReferenceType.STRONG)
           : ImmutableSet.of();
-      computations = Sets.filter(computations, Compute.ASYNC::equals);
+      computations = Sets.intersection(computations, Set.of(Compute.ASYNC));
     }
-    if (isAsyncOnly || computations.equals(ImmutableSet.of(Compute.ASYNC))) {
-      implementations = implementations.contains(Implementation.Caffeine)
-          ? ImmutableSet.of(Implementation.Caffeine)
-          : ImmutableSet.of();
+    if (!isGuavaCompatible || isAsyncOnly || computations.equals(ImmutableSet.of(Compute.ASYNC))) {
+      implementations = Sets.difference(implementations, Set.of(Implementation.Guava));
     }
     if (computations.equals(ImmutableSet.of(Compute.SYNC))) {
-      asyncLoading = ImmutableSet.of(false);
+      asyncLoader = ImmutableSet.of(false);
+    }
+
+    if (isLoadingOnly) {
+      loaders = Sets.difference(loaders, Set.of(Loader.DISABLED)).immutableCopy();
     }
 
     if (computations.isEmpty() || implementations.isEmpty()
@@ -123,7 +126,6 @@ public final class CacheGenerator {
         ImmutableSet.copyOf(cacheSpec.expireAfterAccess()),
         ImmutableSet.copyOf(cacheSpec.expireAfterWrite()),
         ImmutableSet.copyOf(cacheSpec.refreshAfterWrite()),
-        ImmutableSet.copyOf(cacheSpec.advanceOnPopulation()),
         ImmutableSet.copyOf(keys),
         ImmutableSet.copyOf(values),
         ImmutableSet.copyOf(cacheSpec.executor()),
@@ -131,17 +133,16 @@ public final class CacheGenerator {
         ImmutableSet.copyOf(cacheSpec.removalListener()),
         ImmutableSet.copyOf(cacheSpec.evictionListener()),
         ImmutableSet.copyOf(cacheSpec.population()),
-        ImmutableSet.of(true, isLoadingOnly),
-        ImmutableSet.copyOf(asyncLoading),
+        ImmutableSet.copyOf(asyncLoader),
         ImmutableSet.copyOf(computations),
-        ImmutableSet.copyOf(cacheSpec.loader()),
+        ImmutableSet.copyOf(loaders),
         ImmutableSet.copyOf(implementations));
   }
 
   /** Returns the set of options filtered if a specific type is specified. */
   private static <T> Set<T> filterTypes(Optional<T> type, T[] options) {
     return type.isPresent()
-        ? type.filter(List.of(options)::contains).stream().collect(toImmutableSet())
+        ? Sets.intersection(Set.of(options), Set.of(type.orElseThrow()))
         : ImmutableSet.copyOf(options);
   }
 
@@ -157,7 +158,6 @@ public final class CacheGenerator {
         (Expire) combination.get(index++),
         (Expire) combination.get(index++),
         (Expire) combination.get(index++),
-        (Advance) combination.get(index++),
         (ReferenceType) combination.get(index++),
         (ReferenceType) combination.get(index++),
         (CacheExecutor) combination.get(index++),
@@ -165,7 +165,6 @@ public final class CacheGenerator {
         (Listener) combination.get(index++),
         (Listener) combination.get(index++),
         (Population) combination.get(index++),
-        (Boolean) combination.get(index++),
         (Boolean) combination.get(index++),
         (Compute) combination.get(index++),
         (Loader) combination.get(index++),
@@ -177,10 +176,10 @@ public final class CacheGenerator {
   private boolean isCompatible(CacheContext context) {
     boolean asyncIncompatible = context.isAsync()
         && (!context.isCaffeine() || !context.isStrongValues());
-    boolean asyncLoaderIncompatible = context.isAsyncLoading()
+    boolean asyncLoaderIncompatible = context.isAsyncLoader()
         && (!context.isAsync() || !context.isLoading());
     boolean refreshIncompatible = context.refreshes() && !context.isLoading();
-    boolean weigherIncompatible = context.isUnbounded() && context.isWeighted();
+    boolean weigherIncompatible = (context.maximum() == Maximum.DISABLED) && context.isWeighted();
     boolean referenceIncompatible = cacheSpec.requiresWeakOrSoft()
         && context.isStrongKeys() && context.isStrongValues();
     boolean expiryIncompatible = (context.expiryType() != CacheExpiry.DISABLED)
@@ -189,9 +188,9 @@ public final class CacheGenerator {
             || (context.expireAfterWrite() != Expire.DISABLED));
     boolean expirationIncompatible = (cacheSpec.mustExpireWithAnyOf().length > 0)
         && Arrays.stream(cacheSpec.mustExpireWithAnyOf()).noneMatch(context::expires);
-    boolean schedulerIgnored = (context.cacheScheduler != CacheScheduler.DEFAULT)
-        && !context.expires();
-    boolean evictionListenerIncompatible = (context.evictionListenerType() != Listener.DEFAULT)
+    boolean schedulerIgnored = (context.cacheScheduler != CacheScheduler.DISABLED)
+        && (!context.expires() || context.isGuava());
+    boolean evictionListenerIncompatible = (context.evictionListenerType() != Listener.DISABLED)
         && (!context.isCaffeine() || (context.isAsync() && context.isWeakKeys()));
 
     boolean skip = asyncIncompatible || asyncLoaderIncompatible || evictionListenerIncompatible
@@ -211,7 +210,7 @@ public final class CacheGenerator {
   }
 
   /** Fills the cache up to the population size. */
-  @SuppressWarnings("PreferJavaTimeOverload")
+  @SuppressWarnings("unchecked")
   private static void populate(CacheContext context, Cache<Int, Int> cache) {
     if (context.population.size() == 0) {
       return;
@@ -240,19 +239,24 @@ public final class CacheGenerator {
       }
       cache.put(key, value);
       context.original.put(key, value);
-      context.ticker().advance(context.advance.timeNanos(), TimeUnit.NANOSECONDS);
+    }
+    if (context.executorType() != CacheExecutor.DIRECT) {
+      cache.cleanUp();
+    }
+    if (context.expiryType() == CacheExpiry.MOCKITO) {
+      Mockito.clearInvocations(context.expiry());
     }
   }
 
   /** Returns a cache of integers and their negation. */
-  private static List<Map.Entry<Int, Int>> makeInts() {
-    int size = Stream.of(CacheSpec.Population.values())
+  private static ImmutableList<Map.Entry<Int, Int>> makeInts() {
+    int size = Arrays.stream(CacheSpec.Population.values())
         .mapToInt(population -> Math.toIntExact(population.size()))
         .max().getAsInt();
     var builder = new ImmutableList.Builder<Map.Entry<Int, Int>>();
     for (int i = 0; i < size; i++) {
       Int value = Int.valueOf(BASE + i);
-      builder.add(Maps.immutableEntry(value, value.negate()));
+      builder.add(Map.entry(value, value.negate()));
     }
     return builder.build();
   }

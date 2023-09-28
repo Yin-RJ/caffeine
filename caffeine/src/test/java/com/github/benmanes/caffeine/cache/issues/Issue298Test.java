@@ -23,8 +23,6 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.annotation.Nonnull;
-
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
@@ -33,13 +31,14 @@ import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Policy.VarExpiration;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
 /**
  * Issue #298: Stale data when using Expiry
  * <p>
  * When a future value in an AsyncCache is in-flight, the entry has an infinite expiration time to
  * disable eviction. When it completes, a callback performs a no-op write into the cache to
- * update its metadata (expiration, weight, etc). This may race with a reader who obtains a
+ * update its metadata (expiration, weight, etc.). This may race with a reader who obtains a
  * completed future, reads the current duration as infinite, and tries to set the expiration time
  * accordingly (to indicate no change). If the writer completes before the reader updates, then we
  * encounter an ABA problem where the entry is set to never expire.
@@ -76,7 +75,7 @@ public final class Issue298Test {
 
     key = "key";
     cache = makeAsyncCache();
-    policy = cache.synchronous().policy().expireVariably().get();
+    policy = cache.synchronous().policy().expireVariably().orElseThrow();
   }
 
   @AfterMethod
@@ -88,7 +87,9 @@ public final class Issue298Test {
   @SuppressWarnings("FutureReturnValueIgnored")
   public void readDuringCreate() {
     // Loaded value and waiting at expireAfterCreate (expire: infinite)
-    cache.get(key);
+    var initialValue = cache.get(key);
+    assertThat(initialValue).isNotNull();
+
     await().untilTrue(startedLoad);
     doLoad.set(true);
     await().untilTrue(startedCreate);
@@ -96,13 +97,14 @@ public final class Issue298Test {
     // Async read trying to wait at expireAfterRead
     var reader = CompletableFuture.runAsync(() -> {
       do {
-        cache.get(key);
+        var value = cache.get(key);
+        assertThat(value).isEqualTo(initialValue);
       } while (!endRead.get());
     }, executor);
 
     // Ran expireAfterCreate (expire: infinite -> create)
     doCreate.set(true);
-    await().until(() -> policy.getExpiresAfter(key).get().toNanos() <= EXPIRE_NS);
+    await().until(() -> policy.getExpiresAfter(key).orElseThrow().toNanos() <= EXPIRE_NS);
     await().untilTrue(startedRead);
 
     // Ran reader (expire: create -> ?)
@@ -111,24 +113,26 @@ public final class Issue298Test {
     reader.join();
 
     // Ensure expire is [expireAfterCreate], not [infinite]
-    assertThat(policy.getExpiresAfter(key).get().toNanos()).isAtMost(EXPIRE_NS);
+    assertThat(policy.getExpiresAfter(key).orElseThrow().toNanos()).isAtMost(EXPIRE_NS);
   }
 
   private AsyncLoadingCache<String, String> makeAsyncCache() {
     return Caffeine.newBuilder()
+        .executor(executor)
         .expireAfter(new Expiry<String, String>() {
-          @Override public long expireAfterCreate(@Nonnull String key,
-              @Nonnull String value, long currentTime) {
+          @Override public long expireAfterCreate(String key, String value, long currentTime) {
             startedCreate.set(true);
             await().untilTrue(doCreate);
             return EXPIRE_NS;
           }
-          @Override public long expireAfterUpdate(@Nonnull String key,
-              @Nonnull String value, long currentTime, long currentDuration) {
+          @CanIgnoreReturnValue
+          @Override public long expireAfterUpdate(String key, String value,
+              long currentTime, long currentDuration) {
             return currentDuration;
           }
-          @Override public long expireAfterRead(@Nonnull String key,
-              @Nonnull String value, long currentTime, long currentDuration) {
+          @CanIgnoreReturnValue
+          @Override public long expireAfterRead(String key, String value,
+              long currentTime, long currentDuration) {
             startedRead.set(true);
             await().untilTrue(doRead);
             return currentDuration;

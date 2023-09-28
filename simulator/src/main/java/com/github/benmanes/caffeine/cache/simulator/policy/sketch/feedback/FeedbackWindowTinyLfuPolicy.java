@@ -16,7 +16,8 @@
 package com.github.benmanes.caffeine.cache.simulator.policy.sketch.feedback;
 
 import static com.google.common.base.Preconditions.checkState;
-import static java.util.stream.Collectors.toSet;
+import static java.util.Locale.US;
+import static java.util.stream.Collectors.toUnmodifiableSet;
 
 import java.util.List;
 import java.util.Map;
@@ -30,8 +31,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 
@@ -83,7 +82,7 @@ public final class FeedbackWindowTinyLfuPolicy implements KeyOnlyPolicy {
   public FeedbackWindowTinyLfuPolicy(double percentMain, FeedbackWindowTinyLfuSettings settings) {
     this.policyStats = new PolicyStats(name() + " (%.0f%%)", 100 * (1.0d - percentMain));
     this.admittor = new TinyLfu(settings.config(), policyStats);
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
 
     int maxMain = (int) (maximumSize * percentMain);
     this.maxProtected = (int) (maxMain * settings.percentMainProtected());
@@ -111,7 +110,7 @@ public final class FeedbackWindowTinyLfuPolicy implements KeyOnlyPolicy {
     FeedbackWindowTinyLfuSettings settings = new FeedbackWindowTinyLfuSettings(config);
     return settings.percentMain().stream()
         .map(percentMain -> new FeedbackWindowTinyLfuPolicy(percentMain, settings))
-        .collect(toSet());
+        .collect(toUnmodifiableSet());
   }
 
   @Override
@@ -297,7 +296,7 @@ public final class FeedbackWindowTinyLfuPolicy implements KeyOnlyPolicy {
 
   void printSegmentSizes() {
     if (debug) {
-      System.out.printf("maxWindow=%d, maxProtected=%d, percentWindow=%.1f%n",
+      System.out.printf(US, "maxWindow=%d, maxProtected=%d, percentWindow=%.1f%n",
           maxWindow, maxProtected, (double) (100 * maxWindow) / maximumSize);
     }
   }
@@ -410,7 +409,7 @@ public final class FeedbackWindowTinyLfuPolicy implements KeyOnlyPolicy {
       return config().getDouble("feedback-window-tiny-lfu.adaptive-fpp");
     }
     public Config filterConfig(int sampleSize) {
-      Map<String, Object> properties = ImmutableMap.of(
+      Map<String, Object> properties = Map.of(
           "membership.fpp", adaptiveFpp(),
           "maximum-size", sampleSize);
       return ConfigFactory.parseMap(properties).withFallback(config());

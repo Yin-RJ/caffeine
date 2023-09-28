@@ -17,7 +17,10 @@ package com.github.benmanes.caffeine.cache;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
+
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.ParameterSpec;
@@ -46,6 +49,8 @@ public final class Specifications {
   public static final ClassName nodeType = ClassName.get(PACKAGE_NAME, "Node");
   public static final TypeName lookupKeyType =
       ClassName.get(PACKAGE_NAME + ".References", "LookupKeyReference");
+  public static final TypeName referenceType = ParameterizedTypeName.get(
+      ClassName.get(Reference.class), kTypeVar);
   public static final TypeName referenceKeyType = ParameterizedTypeName.get(
       ClassName.get(PACKAGE_NAME + ".References", "WeakKeyReference"), kTypeVar);
   public static final TypeName rawReferenceKeyType = ParameterizedTypeName.get(
@@ -76,10 +81,10 @@ public final class Specifications {
       ClassName.get(PACKAGE_NAME, "BoundedLocalCache"), kTypeVar, vTypeVar);
   public static final TypeName NODE = ParameterizedTypeName.get(nodeType, kTypeVar, vTypeVar);
 
-  public static final ParameterizedTypeName CACHE_LOADER = ParameterizedTypeName.get(
-      ClassName.get(PACKAGE_NAME, "CacheLoader"), TypeVariableName.get("? super K"), vTypeVar);
-  public static final ParameterSpec CACHE_LOADER_PARAM =
-      ParameterSpec.builder(CACHE_LOADER, "cacheLoader").build();
+  public static final ParameterizedTypeName ASYNC_CACHE_LOADER = ParameterizedTypeName.get(
+      ClassName.get(PACKAGE_NAME, "AsyncCacheLoader"), TypeVariableName.get("? super K"), vTypeVar);
+  public static final ParameterSpec ASYNC_CACHE_LOADER_PARAM = ParameterSpec
+      .builder(ASYNC_CACHE_LOADER, "cacheLoader").addAnnotation(Nullable.class).build();
 
   public static final TypeName REMOVAL_LISTENER = ParameterizedTypeName.get(
       ClassName.get(PACKAGE_NAME, "RemovalListener"), kTypeVar, vTypeVar);
@@ -93,11 +98,6 @@ public final class Specifications {
       ParameterizedTypeName.get(ClassName.get(PACKAGE_NAME, "AccessOrderDeque"), NODE);
   public static final TypeName WRITE_ORDER_DEQUE =
       ParameterizedTypeName.get(ClassName.get(PACKAGE_NAME, "WriteOrderDeque"), NODE);
-
-  public static final ClassName WRITE_QUEUE_TYPE =
-      ClassName.get(PACKAGE_NAME, "MpscGrowableArrayQueue");
-  public static final TypeName WRITE_QUEUE =
-      ParameterizedTypeName.get(WRITE_QUEUE_TYPE, ClassName.get(Runnable.class));
 
   public static final TypeName EXPIRY = ParameterizedTypeName.get(
       ClassName.get(PACKAGE_NAME, "Expiry"), kTypeVar, vTypeVar);

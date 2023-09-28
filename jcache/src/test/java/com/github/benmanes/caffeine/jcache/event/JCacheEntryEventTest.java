@@ -16,16 +16,22 @@
 package com.github.benmanes.caffeine.jcache.event;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertThrows;
 
+import java.util.Iterator;
 import java.util.Map;
 
 import javax.cache.Cache;
+import javax.cache.event.CacheEntryEvent;
 import javax.cache.event.EventType;
 
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
+
+import com.google.common.collect.testing.IteratorFeature;
+import com.google.common.collect.testing.IteratorTester;
 
 /**
  * @author ben.manes@gmail.com (Ben Manes)
@@ -41,9 +47,9 @@ public final class JCacheEntryEventTest {
     event = new JCacheEntryEvent<>(cache, EventType.CREATED, 1, true, 2, 3);
   }
 
-  @Test(expectedExceptions = IllegalArgumentException.class)
+  @Test
   public void unwrap_fail() {
-    event.unwrap(Map.Entry.class);
+    assertThrows(IllegalArgumentException.class, () -> event.unwrap(Map.Entry.class));
   }
 
   @Test
@@ -65,5 +71,18 @@ public final class JCacheEntryEventTest {
   @Test
   public void getOldValue() {
     assertThat(event.getOldValue()).isEqualTo(2);
+  }
+
+  @Test
+  public void iterable() {
+    var tester = new IteratorTester<CacheEntryEvent<? extends Integer, ? extends Integer>>(
+        6, IteratorFeature.UNMODIFIABLE, event, IteratorTester.KnownOrder.KNOWN_ORDER) {
+      @Override
+      protected Iterator<CacheEntryEvent<? extends Integer, ? extends Integer>> newTargetIterator() {
+        return event.iterator();
+      }
+    };
+    tester.test();
+    tester.testForEachRemaining();
   }
 }

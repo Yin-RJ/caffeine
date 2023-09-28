@@ -15,11 +15,12 @@
  */
 package com.github.benmanes.caffeine.testing;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Locale.US;
 import static org.testng.Assert.fail;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
@@ -33,23 +34,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import org.testng.log4testng.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
- * Shared utilities for multi-threaded tests.
+ * Shared utilities for multithreaded tests.
  *
  * @author ben.manes@gmail.com (Ben Manes)
  */
 public final class Threads {
-  private static final Logger logger = Logger.getLogger(Threads.class);
+  private static final Logger logger = LoggerFactory.getLogger(Threads.class);
 
   public static final int ITERATIONS = 40_000;
   public static final int NTHREADS = 20;
@@ -67,23 +67,25 @@ public final class Threads {
 
   public static void executeWithTimeOut(Queue<String> failures, Callable<Long> task) {
     var es = Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setDaemon(true).build());
-    var future = es.submit(task);
     try {
+      var future = es.submit(task);
       long timeNS = future.get(TIMEOUT, TimeUnit.SECONDS);
-      logger.debug("\nExecuted in " + TimeUnit.NANOSECONDS.toSeconds(timeNS) + " second(s)");
+      logger.debug("\nExecuted in {} second(s)", TimeUnit.NANOSECONDS.toSeconds(timeNS));
     } catch (ExecutionException e) {
-      fail("Exception during test: " + e.toString(), e);
+      fail("Exception during test: " + e, e);
     } catch (TimeoutException e) {
-      handleTimout(failures, es, e);
+      handleTimeout(failures, es, e);
     } catch (InterruptedException e) {
       fail("", e);
+    } finally {
+      es.shutdown();
     }
   }
 
-  public static void handleTimout(Queue<String> failures, ExecutorService es, TimeoutException e) {
+  public static void handleTimeout(Queue<String> failures, ExecutorService es, TimeoutException e) {
     for (var trace : Thread.getAllStackTraces().values()) {
       for (var element : trace) {
-        logger.info("\tat " + element);
+        logger.info("\tat {}", element);
       }
       if (trace.length > 0) {
         logger.info("------");
@@ -100,7 +102,7 @@ public final class Threads {
     var keys = IntStream.range(0, iterations)
         .map(i -> ThreadLocalRandom.current().nextInt(iterations / 100))
         .mapToObj(Int::valueOf)
-        .collect(Collectors.toList());
+        .collect(toImmutableList());
     return shuffle(nThreads, keys);
   }
 
@@ -110,14 +112,14 @@ public final class Threads {
    * @param samples the number of variants to create
    * @param baseline the base working set to build from
    */
-  private static <T> List<List<T>> shuffle(int samples, Collection<T> baseline) {
+  private static <T> List<List<T>> shuffle(int samples, List<T> baseline) {
     var workingSets = new ArrayList<List<T>>(samples);
+    var workingSet = new ArrayList<T>(baseline);
     for (int i = 0; i < samples; i++) {
-      var workingSet = new ArrayList<T>(baseline);
       Collections.shuffle(workingSet);
-      workingSets.add(ImmutableList.copyOf(workingSet));
+      workingSets.add(List.copyOf(workingSet));
     }
-    return ImmutableList.copyOf(workingSets);
+    return List.copyOf(workingSets);
   }
 
   /** Executes operations against the cache to simulate random load. */
@@ -144,7 +146,7 @@ public final class Threads {
         try {
           operation.accept(collection, e);
         } catch (Throwable t) {
-          failures.add(String.format("Failed: key %s on operation %s%n%s",
+          failures.add(String.format(US, "Failed: key %s on operation %s%n%s",
               e, operation, Throwables.getStackTraceAsString(t)));
           throw t;
         }

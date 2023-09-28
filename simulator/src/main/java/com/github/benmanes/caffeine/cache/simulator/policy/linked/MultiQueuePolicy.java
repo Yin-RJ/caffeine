@@ -16,7 +16,6 @@
 package com.github.benmanes.caffeine.cache.simulator.policy.linked;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 
 import java.util.Arrays;
 
@@ -25,7 +24,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
@@ -41,10 +39,10 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectSortedMap;
  * frequency and be eagerly promoted.
  * <p>
  * This policy is designed for second-level caches where a hit in this cache was a miss at the first
- * level. Thus the first-level cache captures most of the recency information and the second-level
+ * level. Thus, the first-level cache captures most of the recency information and the second-level
  * cache access is dominated by usage frequency.
  * <p>
- * This implementation is based on the pseudo code provided by the authors in their paper
+ * This implementation is based on the pseudocode provided by the authors in their paper
  * <a href="https://www.usenix.org/legacy/event/usenix01/full_papers/zhou/zhou.pdf">The Multi-Queue
  * Replacement Algorithm for Second Level. Buffer Caches</a>.
  *
@@ -65,7 +63,7 @@ public final class MultiQueuePolicy implements KeyOnlyPolicy {
 
   public MultiQueuePolicy(Config config) {
     MultiQueueSettings settings = new MultiQueueSettings(config);
-    maximumSize = Ints.checkedCast(settings.maximumSize());
+    maximumSize = Math.toIntExact(settings.maximumSize());
     threshold = new long[settings.numberOfQueues()];
     headQ = new Node[settings.numberOfQueues()];
     out = new Long2ObjectLinkedOpenHashMap<>();
@@ -184,8 +182,6 @@ public final class MultiQueuePolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
-
       queueIndex = -1;
       prev.next = next;
       next.prev = prev;

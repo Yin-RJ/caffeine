@@ -15,11 +15,11 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.parser;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.Sets.toImmutableEnumSet;
 import static java.util.Locale.US;
-import static java.util.stream.Collectors.toList;
 
 import java.util.List;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -28,9 +28,11 @@ import com.github.benmanes.caffeine.cache.simulator.parser.address.AddressTraceR
 import com.github.benmanes.caffeine.cache.simulator.parser.address.penalties.AddressPenaltiesTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.arc.ArcTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.cache2k.Cache2kTraceReader;
+import com.github.benmanes.caffeine.cache.simulator.parser.cachelib.CachelibTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.camelab.CamelabTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.cloud_physics.CloudPhysicsTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.corda.CordaTraceReader;
+import com.github.benmanes.caffeine.cache.simulator.parser.glcache.GLCacheTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.gradle.GradleTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.kaggle.OutbrainTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.lirs.LirsTraceReader;
@@ -42,6 +44,7 @@ import com.github.benmanes.caffeine.cache.simulator.parser.snia.parallel.K5cloud
 import com.github.benmanes.caffeine.cache.simulator.parser.snia.parallel.TencentBlockTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.snia.parallel.TencentPhotoTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.snia.systor.SystorTraceReader;
+import com.github.benmanes.caffeine.cache.simulator.parser.tragen.TragenTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.twitter.TwitterTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.umass.network.YoutubeTraceReader;
 import com.github.benmanes.caffeine.cache.simulator.parser.umass.storage.StorageTraceReader;
@@ -49,8 +52,9 @@ import com.github.benmanes.caffeine.cache.simulator.parser.wikipedia.WikipediaTr
 import com.github.benmanes.caffeine.cache.simulator.policy.AccessEvent;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.Characteristic;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 
 /**
  * The trace file formats.
@@ -64,9 +68,11 @@ public enum TraceFormat {
   ADAPT_SIZE(AdaptSizeTraceReader::new),
   ARC(ArcTraceReader::new),
   CACHE2K(Cache2kTraceReader::new),
+  CACHELIB(CachelibTraceReader::new),
   CAMELAB(CamelabTraceReader::new),
   CLOUD_PHYSICS(CloudPhysicsTraceReader::new),
   CORDA(CordaTraceReader::new),
+  GL_CACHE(GLCacheTraceReader::new),
   GRADLE(GradleTraceReader::new),
   LIRS(LirsTraceReader::new),
   LRB(LrbTraceReader::new),
@@ -78,6 +84,7 @@ public enum TraceFormat {
   SNIA_SYSTOR(SystorTraceReader::new),
   SNIA_TENCENT_BLOCK(TencentBlockTraceReader::new),
   SNIA_TENCENT_PHOTO(TencentPhotoTraceReader::new),
+  TRAGEN(TragenTraceReader::new),
   TWITTER(TwitterTraceReader::new),
   UMASS_STORAGE(StorageTraceReader::new),
   UMASS_YOUTUBE(YoutubeTraceReader::new),
@@ -98,22 +105,22 @@ public enum TraceFormat {
   public TraceReader readFiles(List<String> filePaths) {
     return new TraceReader() {
 
-      @Override public Set<Characteristic> characteristics() {
+      @Override public ImmutableSet<Characteristic> characteristics() {
         return readers().stream()
             .flatMap(reader -> reader.characteristics().stream())
-            .collect(Sets.toImmutableEnumSet());
+            .collect(toImmutableEnumSet());
       }
 
       @Override public Stream<AccessEvent> events() {
         return readers().stream().flatMap(TraceReader::events);
       }
 
-      private List<TraceReader> readers() {
+      private ImmutableList<TraceReader> readers() {
         return filePaths.stream().map(path -> {
           List<String> parts = Splitter.on(':').limit(2).splitToList(path);
           TraceFormat format = (parts.size() == 1) ? TraceFormat.this : named(parts.get(0));
           return format.factory.apply(Iterables.getLast(parts));
-        }).collect(toList());
+        }).collect(toImmutableList());
       }
     };
   }

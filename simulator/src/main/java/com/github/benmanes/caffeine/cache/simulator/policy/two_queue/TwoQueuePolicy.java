@@ -15,14 +15,11 @@
  */
 package com.github.benmanes.caffeine.cache.simulator.policy.two_queue;
 
-import static com.google.common.base.Preconditions.checkState;
-
 import com.github.benmanes.caffeine.cache.simulator.BasicSettings;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -34,7 +31,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  * monitored (OUT). The maximum size of the IN and OUT queues must be tuned with the authors
  * recommending 20% and 50% of the maximum size, respectively.
  * <p>
- * This implementation is based on the pseudo code provided by the authors in their paper
+ * This implementation is based on the pseudocode provided by the authors in their paper
  * <a href="http://www.vldb.org/conf/1994/P439.PDF">2Q: A Low Overhead High Performance Buffer
  * Management Replacement Algorithm</a>. For consistency with other policies, this version places
  * the next item to be removed at the head and most recently added at the tail of the queue.
@@ -68,7 +65,7 @@ public final class TwoQueuePolicy implements KeyOnlyPolicy {
     this.headMain = new Node();
     this.data = new Long2ObjectOpenHashMap<>();
     this.policyStats = new PolicyStats(name());
-    this.maximumSize = Ints.checkedCast(settings.maximumSize());
+    this.maximumSize = Math.toIntExact(settings.maximumSize());
     this.maxIn = (int) (maximumSize * settings.percentIn());
     this.maxOut = (int) (maximumSize * settings.percentOut());
   }
@@ -227,8 +224,6 @@ public final class TwoQueuePolicy implements KeyOnlyPolicy {
 
     /** Removes the node from the list. */
     public void remove() {
-      checkState(key != Long.MIN_VALUE);
-
       prev.next = next;
       next.prev = prev;
       prev = next = UNLINKED; // mark as unlinked

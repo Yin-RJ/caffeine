@@ -92,16 +92,6 @@ abstract class MpscChunkedArrayQueue<E> extends MpscChunkedArrayQueueColdProduce
   public int capacity() {
     return (int) (maxQueueCapacity / 2);
   }
-
-  @Override
-  protected int getNextBufferSize(E[] buffer) {
-    return buffer.length;
-  }
-
-  @Override
-  protected long getCurrentBufferCapacity(long mask) {
-    return mask;
-  }
 }
 
 abstract class MpscChunkedArrayQueueColdProducerFields<E> extends BaseMpscLinkedArrayQueue<E> {
@@ -195,7 +185,7 @@ abstract class BaseMpscLinkedArrayQueueColdProducerFields<E>
   protected E[] producerBuffer;
 }
 
-@SuppressWarnings({"PMD", "NullAway"})
+@SuppressWarnings({"NullAway", "PMD"})
 abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdProducerFields<E> {
   static final VarHandle REF_ARRAY;
   static final VarHandle P_INDEX;
@@ -204,7 +194,7 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
 
   // No post padding here, subclasses must add
 
-  private final static Object JUMP = new Object();
+  private static final Object JUMP = new Object();
 
   /**
    * @param initialCapacity the queue initial capacity. If chunk size is fixed this will be the
@@ -240,7 +230,7 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
   @Override
   @SuppressWarnings("MissingDefault")
   public boolean offer(final E e) {
-    if (null == e) {
+    if (e == null) {
       throw new NullPointerException();
     }
 
@@ -408,7 +398,7 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
   private E newBufferPeek(E[] nextBuffer, final long index) {
     final long offsetInNew = newBufferAndOffset(nextBuffer, index);
     final E n = lvElement(nextBuffer, offsetInNew);// LoadLoad
-    if (null == n) {
+    if (n == null) {
       throw new IllegalStateException("new buffer must have at least one element");
     }
     return n;
@@ -417,8 +407,7 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
   private long newBufferAndOffset(E[] nextBuffer, final long index) {
     consumerBuffer = nextBuffer;
     consumerMask = (nextBuffer.length - 2L) << 1;
-    final long offsetInNew = modifiedCalcElementOffset(index, consumerMask);
-    return offsetInNew;
+    return modifiedCalcElementOffset(index, consumerMask);
   }
 
   @Override
@@ -455,7 +444,7 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
   public final boolean isEmpty() {
     // Order matters!
     // Loading consumer before producer allows for producer increments after consumer index is read.
-    // This ensures this method is conservative in it's estimate. Note that as this is an MPMC there
+    // This ensures this method is conservative in its estimate. Note that as this is an MPMC there
     // is nothing we can do to make this an exact method.
     return (lvConsumerIndex(this) == lvProducerIndex(this));
   }
@@ -597,21 +586,10 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
    */
 
   /**
-   * A plain store (no ordering/fences) of an element to a given offset
-   *
-   * @param buffer this.buffer
-   * @param offset computed via {@link org.jctools.util.UnsafeRefArrayAccess#calcElementOffset(long)}
-   * @param e an orderly kitty
-   */
-  static <E> void spElement(E[] buffer, long offset, E e) {
-    REF_ARRAY.set(buffer, (int) offset, e);
-  }
-
-  /**
    * An ordered store(store + StoreStore barrier) of an element to a given offset
    *
    * @param buffer this.buffer
-   * @param offset computed via {@link org.jctools.util.UnsafeRefArrayAccess#calcElementOffset}
+   * @param offset computed
    * @param e an orderly kitty
    */
   static <E> void soElement(E[] buffer, long offset, E e) {
@@ -619,35 +597,15 @@ abstract class BaseMpscLinkedArrayQueue<E> extends BaseMpscLinkedArrayQueueColdP
   }
 
   /**
-   * A plain load (no ordering/fences) of an element from a given offset.
-   *
-   * @param buffer this.buffer
-   * @param offset computed via {@link org.jctools.util.UnsafeRefArrayAccess#calcElementOffset(long)}
-   * @return the element at the offset
-   */
-  @SuppressWarnings("unchecked")
-  static <E> E lpElement(E[] buffer, long offset) {
-    return (E) REF_ARRAY.get(buffer, (int) offset);
-  }
-
-  /**
    * A volatile load (load + LoadLoad barrier) of an element from a given offset.
    *
    * @param buffer this.buffer
-   * @param offset computed via {@link org.jctools.util.UnsafeRefArrayAccess#calcElementOffset(long)}
+   * @param offset computed
    * @return the element at the offset
    */
   @SuppressWarnings("unchecked")
   static <E> E lvElement(E[] buffer, long offset) {
     return (E) REF_ARRAY.getVolatile(buffer, (int) offset);
-  }
-
-  /**
-   * @param index desirable element index
-   * @return the offset in bytes within the array for a given index.
-   */
-  static long calcElementOffset(long index) {
-    return (index >> 1);
   }
 
   /**

@@ -22,7 +22,6 @@ import com.github.benmanes.caffeine.cache.simulator.policy.Policy.KeyOnlyPolicy;
 import com.github.benmanes.caffeine.cache.simulator.policy.Policy.PolicySpec;
 import com.github.benmanes.caffeine.cache.simulator.policy.PolicyStats;
 import com.google.common.base.MoreObjects;
-import com.google.common.primitives.Ints;
 import com.typesafe.config.Config;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -31,7 +30,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 /**
  * The ClockPro algorithm. This algorithm differs from LIRS by replacing the LRU stacks with Clock
  * (Second Chance) policy. This allows cache hits to be performed concurrently at the cost of a
- * global lock on a miss and a worst case O(n) eviction when the queue is scanned.
+ * global lock on a miss and has the worst case time of O(n) on eviction due to queues being
+ * scanned.
  * <p>
  * ClockPro uses three hands that scan the queue. The hot hand points to the largest recency, the
  * cold hand to the cold entry furthest from the hot hand, and the test hand to the last cold entry
@@ -47,7 +47,11 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
  * @author park910113@gmail.com (Chanyoung Park)
  */
 @PolicySpec(name = "irr.ClockPro")
+@SuppressWarnings("PMD.ImmutableField")
 public final class ClockProPolicy implements KeyOnlyPolicy {
+  // Enable to print out the internal state
+  private static final boolean debug = false;
+
   private final Long2ObjectMap<Node> data;
   private final PolicyStats policyStats;
 
@@ -88,12 +92,9 @@ public final class ClockProPolicy implements KeyOnlyPolicy {
   private int minResColdSize;
   private int maxResColdSize;
 
-  // Enable to print out the internal state
-  static final boolean debug = false;
-
   public ClockProPolicy(Config config) {
     ClockProSettings settings = new ClockProSettings(config);
-    this.maxSize = Ints.checkedCast(settings.maximumSize());
+    this.maxSize = Math.toIntExact(settings.maximumSize());
     this.maxNonResSize = (int) (maxSize * settings.nonResidentMultiplier());
     this.minResColdSize = (int) (maxSize * settings.percentMinCold());
     if (minResColdSize < settings.lowerBoundCold()) {
@@ -245,10 +246,10 @@ public final class ClockProPolicy implements KeyOnlyPolicy {
     checkState(handCold.isResidentCold());
 
     if (handCold.marked) {
-      // If its bit is set and it is in its test period, we turn the cold page into a hot page,
+      // If its bit is set, and it is in its test period, we turn the cold page into a hot page,
       // and ask HAND for its actions, because an access during the test period indicates a
-      // competitively small reuse distance. If its bit is set but it is not in its test period,
-      // there are no status change as well as HAND actions. Its reference bit is reset, and we
+      // competitively small reuse distance. If its bit is set, but it is not in its test period,
+      // then there is no status change or HAND actions. Its reference bit is reset, and we
       // move it to the list head.
       if (handCold.isInTest()) {
         if (canPromote(handCold)) {
@@ -314,7 +315,7 @@ public final class ClockProPolicy implements KeyOnlyPolicy {
         terminateTestPeriod(handHot.next);
       }
     }
-    // Finally the hand stops at a hot page.
+    // Finally, the hand stops at a hot page.
     nextHandHot();
     return demoted;
   }
@@ -480,9 +481,9 @@ public final class ClockProPolicy implements KeyOnlyPolicy {
   /** Prints out the internal state of the policy. */
   private void printClock() {
     System.out.println("** CLOCK-Pro list HEAD (small recency) **");
-    System.out.println(listHead.toString());
+    System.out.println(listHead);
     for (Node n = listHead.next; n != listHead; n = n.next) {
-      System.out.println(n.toString());
+      System.out.println(n);
     }
     System.out.println("** CLOCK-Pro list TAIL (large recency) **");
   }
